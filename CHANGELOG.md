@@ -34,6 +34,9 @@ All notable changes to this project are documented here. The format follows
 - Quotations, citations and footnotes are capped below the review threshold, so
   they are reported but never offered for removal however strong the other
   signals are.
+- A promotional page linked from the table of contents only through a branded
+  entry is now dropped with its manifest and spine references, instead of
+  surviving as an empty document at the end of the book.
 - Search results now report a per-listing security status (scan-on-fetch versus
   link-only) instead of omitting the field.
 - A book without an EPUB edition is refused as a validation error (422) rather

@@ -70,6 +70,8 @@ class Context:
     spine_paths: list[str] = field(default_factory=list)
     nav_paths: set[str] = field(default_factory=set)
     nav_targets: set[str] = field(default_factory=set)
+    #: Navigation targets reached by at least one link that is not branding.
+    nav_targets_clean: set[str] = field(default_factory=set)
     protected_paths: set[str] = field(default_factory=set)
     referenced_images: set[str] = field(default_factory=set)
     metadata: dict[str, str] = field(default_factory=dict)

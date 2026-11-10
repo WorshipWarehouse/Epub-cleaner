@@ -225,13 +225,18 @@ A brand name by itself is never enough. Confidence is assembled from context:
 - **0.50 – 0.85** — kept until you confirm (`--approve`, `--approve-all`, or a tick in the UI).
 - **< 0.50** — informational only; nothing is touched.
 
-So `Downloaded from OceanofPDF.com - free ebooks every day.` as a trailing
-paragraph scores ~0.99 and is removed, while
+So `Downloaded from OceanofPDF.com - free ebooks every day.` scores 0.99 as the
+last block on a page (0.90 when other content follows it) and is removed, while
 `As the editors at OceanofPDF observe, digitisation changes how a page is read.`
-inside a `<blockquote>` scores ~0.25 and stays.
+inside a `<blockquote>` scores 0.10 and stays.
+
+Quotations, citations and footnotes are additionally capped below
+`review_confidence`: they are always reported with their evidence, but they can
+never be offered for removal, however many other signals stack up around them.
 
 Whole *pages* are only dropped when the document is almost entirely branding:
-the page must not be reachable from the table of contents, must not look like
+the page must not be reachable from the table of contents except through an
+entry that is itself branding, must not look like
 front matter (cover/title/copyright), must have no substantive heading, and
 must be left with ≤ 200 characters and ≤ 2 content blocks once the branded
 elements are removed. A short chapter that happens to end with a promo line

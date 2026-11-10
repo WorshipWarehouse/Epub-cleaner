@@ -148,6 +148,7 @@ def build_context(validation: ValidationResult, config: PurifierConfig) -> Conte
         path for path in (package.nav_entry(), package.ncx_entry()) if path and path in ctx.resources
     }
     ctx.nav_targets = _navigation_targets(ctx)
+    ctx.nav_targets_clean = _navigation_targets(ctx, skip_branded=True)
     ctx.protected_paths = _protected_documents(ctx)
     ctx.referenced_images = _referenced_images(ctx)
     ctx.dimensions = _image_dimensions(ctx)
@@ -176,8 +177,13 @@ def _guess_media_type(name: str) -> str:
     }.get(extension, "application/octet-stream")
 
 
-def _navigation_targets(ctx: Context) -> set[str]:
-    """Documents linked from the table of contents."""
+def _navigation_targets(ctx: Context, *, skip_branded: bool = False) -> set[str]:
+    """Documents linked from the table of contents.
+
+    With ``skip_branded`` only links that are not themselves branding count, so
+    a page reachable *solely* through a promotional TOC entry is not treated as
+    user-facing content when promotional pages are judged.
+    """
 
     targets: set[str] = set()
     for path in ctx.nav_paths:
@@ -187,6 +193,8 @@ def _navigation_targets(ctx: Context) -> set[str]:
         for element in resource.soup.find_all(True):
             value = element.get("href") or element.get("src")
             if not isinstance(value, str):
+                continue
+            if skip_branded and (ctx.has_brand(text_of(element)) or ctx.is_promo_url(value)):
                 continue
             resolved = resolve_href(path, value)
             if resolved:
@@ -254,7 +262,9 @@ def _promotional_pages(ctx: Context, mutations: list[Mutation]) -> list[Mutation
             continue
         if posixpath.splitext(entry)[1].lower() not in DOC_EXTENSIONS:
             continue
-        if entry in ctx.nav_paths or entry in ctx.protected_paths or entry in ctx.nav_targets:
+        if entry in ctx.nav_paths or entry in ctx.protected_paths:
+            continue
+        if entry in ctx.nav_targets_clean:
             continue
 
         branded: list[Finding] = []
