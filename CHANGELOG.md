@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
 - Open Library adapter: its official search API is filtered to works marked
   `ebook_access=public`, and the EPUB is downloaded from Internet Archive only
   after the item metadata is re-checked, so lending copies are refused.
+- Standard Ebooks adapter built on its official OPDS search feed: entries are
+  parsed with defusedxml into listings, and downloads use the entry's
+  open-access EPUB link under a standardebooks.org-only allowlist. The
+  membership-gated browse feeds and the site's HTML are never used.
 - Modular source adapters: an authorised EPUB download path for Project
   Gutenberg, and link-only adapters that refuse downloads for the two sites
   without distribution rights to prove.

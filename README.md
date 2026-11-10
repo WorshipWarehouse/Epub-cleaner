@@ -123,7 +123,7 @@ job after 30 minutes (`EPUB_PURIFIER_JOB_TTL`), and serves a strict
 
 ## Search and safe downloads
 
-The web UI can search six sources by title, author or ISBN and compare what
+The web UI can search seven sources by title, author or ISBN and compare what
 each one offers:
 
 | Source | Search | Downloads |
@@ -132,27 +132,19 @@ each one offers:
 | Wikisource | MediaWiki search API | EPUB built on demand by Wikimedia's WS Export; public domain and freely licensed — fetched, scanned and cleaned here |
 | Internet Archive | advanced-search API | EPUB for openly downloadable items, including Gutenberg mirrors; lending copies are refused before any file is requested |
 | Open Library | official search API, filtered to public scans | EPUB downloaded from Internet Archive for works marked `public`; the item metadata is re-checked and lending copies are refused |
+| Standard Ebooks | official OPDS search feed | EPUB from the entry's own open-access acquisition link; standardebooks.org-only allowlist, size cap and EPUB checks before cleaning |
 | Anna's Archive | link to its search page | none: no authorised public API |
 | Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
 
-Standard Ebooks is deliberately absent, and that exclusion is a verified status
-rather than an assumption. Probed on 2026-11-10 with an
-`Accept: application/atom+xml` header and a plain client user agent, its
-documented catalogue feeds — `https://standardebooks.org/feeds/opds`,
-`https://standardebooks.org/feeds/opds/all` and
-`https://standardebooks.org/feeds/atom/all` — all answer
-`401 Unauthorized` with
-
-```
-WWW-Authenticate: Basic realm="Enter your Patrons Circle email address and leave the password empty."
-```
-
-The service itself explains the gate: *"Access to our other feeds is a benefit
-of membership in our Patrons Circle"* and *"New Releases RSS/Atom ebook feeds
-are open to everyone"*. That public New Releases feed
-(`/feeds/atom/new-releases`, `200 application/atom+xml`) is a release list, not
-a searchable catalogue, so EPUB Purifier does not use it as a search source and
-does not scrape the site's HTML as a workaround.
+Standard Ebooks is searched through its official OPDS feed. Its unfiltered
+catalogue feeds (`/feeds/opds`, `/feeds/opds/all`) still answer `401` with a
+Patrons Circle Basic realm, and those feeds are never used. The same feed serves
+public search results at
+`https://standardebooks.org/feeds/opds/all?query=…`, advertises an OpenSearch
+description and links an equivalent public HTML search, so EPUB Purifier uses
+only that documented query endpoint — no membership credentials, no HTML
+scraping. Downloads come from the entry's own `application/epub+zip`
+open-access acquisition link.
 
 Anna's Archive and Ocean of PDF stay link-only on purpose. Neither can show that
 a given file is distributed with the publisher's authorisation, so fetching their

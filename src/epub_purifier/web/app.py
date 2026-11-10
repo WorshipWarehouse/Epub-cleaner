@@ -53,8 +53,9 @@ SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
 
 SEARCH_NOTICE = (
-    "Project Gutenberg, Wikisource, Internet Archive and Open Library results are "
-    "public-domain or openly licensed editions: the EPUB is fetched to this server, scanned and cleaned "
+    "Project Gutenberg, Wikisource, Internet Archive, Open Library and Standard Ebooks "
+    "results are public-domain or openly licensed editions: the EPUB is fetched to this "
+    "server, scanned and cleaned "
     "before it is offered. Anna's Archive and Ocean of PDF are represented by search "
     "links only; EPUB Purifier never downloads from them."
 )
@@ -103,7 +104,7 @@ class SearchRequest(BaseModel):
 
 class TransferRequest(BaseModel):
     source: str = Field(..., min_length=2, max_length=40, pattern=r"^[a-z0-9_-]+$")
-    book_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    book_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
 
 
 class CoverCache:

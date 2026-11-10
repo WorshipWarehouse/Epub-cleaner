@@ -27,6 +27,7 @@ from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF, LinkOnlySource
 from .openlibrary import OpenLibrarySource
 from .registry import default_sources, get_source, search_books
+from .standardebooks import StandardEbooksSource
 from .wikisource import WikisourceSource
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     "SearchResponse",
     "SourceError",
     "SourceStatus",
+    "StandardEbooksSource",
     "WikisourceSource",
     "default_sources",
     "get_source",
