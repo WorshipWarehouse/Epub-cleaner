@@ -12,6 +12,10 @@ from ..config import PurifierConfig
 from ..opf import PackageDocument
 
 
+#: Optional domain suffix that belongs to a brand mention (``.com``, ``.co.uk``).
+_DOMAIN_TAIL = re.compile(r"(?:\.[a-z]{2,12})+\b", re.IGNORECASE)
+
+
 @dataclass
 class Resource:
     """One archive member, parsed lazily."""
@@ -77,9 +81,20 @@ class Context:
 
     # -- brand matching --------------------------------------------------
     def brand_hits(self, text: str | None) -> list[str]:
+        """Every brand mention, widened to include a trailing domain suffix.
+
+        A footer that says "OceanofPDF.com" mentions more of the brand than the
+        bare name, and counting the domain keeps the dominance signal honest for
+        the plain-text promotions that appear in converted books.
+        """
+
         if not text:
             return []
-        return [match.group(0) for match in self.config.brand_regex.finditer(text)]
+        hits: list[str] = []
+        for match in self.config.brand_regex.finditer(text):
+            tail = _DOMAIN_TAIL.match(text, match.end())
+            hits.append(text[match.start() : tail.end() if tail else match.end()])
+        return hits
 
     def has_brand(self, text: str | None) -> bool:
         return bool(text and self.config.brand_regex.search(text))

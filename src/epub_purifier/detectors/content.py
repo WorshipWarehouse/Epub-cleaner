@@ -58,6 +58,15 @@ def detect_markup_branding(ctx: Context, resource: Resource) -> list[Mutation]:
         if parent is None:
             continue
 
+        # CSS and JavaScript bodies are not reader-visible text: styles.py and
+        # security.py report them once, on their own terms. Without this the
+        # same declaration is also scored as a promotional text block.
+        if any(
+            local_name(ancestor.name) in {"style", "script"}
+            for ancestor in (parent, *_ancestors(parent))
+        ):
+            continue
+
         # Titles and headings are cleaned in place, never deleted.
         if local_name(parent.name) in {"title"}:
             mutation = _clean_text(node, resource.path)

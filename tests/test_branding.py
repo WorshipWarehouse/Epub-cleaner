@@ -22,6 +22,65 @@ def _text_of(entries: dict[str, bytes]) -> str:
     )
 
 
+PLAIN_FOOTER_CHAPTER = """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter One</title></head>
+<body>
+  <h1>Chapter One</h1>
+  <p>The church has always been analog, and the room shapes what happens in it.</p>
+  <p>Downloaded from OceanofPDF.com - free ebooks every day.</p>
+</body>
+</html>"""
+
+INLINE_STYLE_CHAPTER = """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter One</title>
+  <style>.promo::after { content: "oceanofpdf.com"; }</style>
+</head>
+<body>
+  <h1>Chapter One</h1>
+  <p>Ordinary prose that must survive untouched.</p>
+</body>
+</html>"""
+
+
+def test_plain_text_promo_footer_is_removed_without_markup_hints():
+    """A bare "Downloaded from …" paragraph needs no promo class to be removed."""
+
+    from .conftest import simple_book
+
+    data = simple_book(PLAIN_FOOTER_CHAPTER)
+    report = inspect_epub(data)
+    footer = [
+        finding
+        for finding in report.findings
+        if finding.evidence and "Downloaded from OceanofPDF.com" in finding.evidence
+    ]
+    assert footer, "the footer should be reported"
+    assert footer[0].remediation is Remediation.AUTO
+    assert footer[0].confidence >= 0.85
+
+    chapter = _entries(clean_epub(data).data)["OEBPS/chapter1.xhtml"].decode()
+    assert "Downloaded from" not in chapter
+    assert "always been analog" in chapter
+    assert "Chapter One" in chapter
+
+
+def test_inline_css_is_not_also_scored_as_a_text_block():
+    """CSS bodies are reported once, by the style rule, not as promotional prose."""
+
+    from .conftest import simple_book
+
+    report = inspect_epub(simple_book(INLINE_STYLE_CHAPTER))
+    text_blocks = [
+        finding
+        for finding in report.findings
+        if finding.rule == "branding.text_block" and finding.target.endswith("chapter1.xhtml")
+    ]
+    assert not any("style" in (finding.location or "") for finding in text_blocks)
+    assert any(finding.rule == "branding.inline_style" for finding in report.findings)
+
+
 def test_promo_paragraph_removed_chapter_kept(sample_epub):
     result = clean_epub(sample_epub)
     entries = _entries(result.data)

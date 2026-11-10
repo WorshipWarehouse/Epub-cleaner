@@ -26,6 +26,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A plain-text "Downloaded from OceanofPDF.com - free ebooks every day." footer
+  now reaches auto-removal confidence without needing a promotional class: a
+  brand's domain suffix counts toward how much of the block the brand occupies.
+- Inline `<style>` bodies are no longer also scored as promotional text blocks,
+  so one CSS declaration produces one finding instead of two.
 - Search results now report a per-listing security status (scan-on-fetch versus
   link-only) instead of omitting the field.
 - A book without an EPUB edition is refused as a validation error (422) rather
