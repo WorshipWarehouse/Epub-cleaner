@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>EPUB Purifier — search, scan and clean EPUB files</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">EP</span>
+        <div>
+          <h1>EPUB Purifier</h1>
+          <p class="tagline">Strip third-party promotions, trackers and scripts. Keep the book.</p>
+        </div>
+      </div>
+      <ul class="facts">
+        <li>Runs locally</li>
+        <li>No uploads to third parties</li>
+        <li>Downloads deleted after cleaning</li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="search-heading">
+      <h2 id="search-heading"><span class="step">1</span> Find a book</h2>
+      <form id="search-form" class="search-form" role="search">
+        <label class="visually-hidden" for="search-input">Search by title, author or ISBN</label>
+        <input id="search-input" class="search-input" type="search" name="q"
+               placeholder="Title, author or ISBN" autocomplete="off"
+               minlength="2" maxlength="200" required>
+        <button class="button primary" type="submit">Search</button>
+      </form>
+      <p id="search-status" class="status" role="status" aria-live="polite"></p>
+      <div id="source-list" class="source-list"></div>
+      <ul id="search-results" class="search-results"></ul>
+      <div id="transfer-panel" class="transfer" hidden aria-live="polite">
+        <h3>Scanned and cleaned</h3>
+        <div id="transfer-body"></div>
+      </div>
+      <p class="muted">
+        Project Gutenberg editions are public domain: the EPUB is fetched to this server,
+        scanned and cleaned before you download it. Anna's Archive and Ocean of PDF are
+        search links only — EPUB Purifier never downloads from them.
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="upload-heading">
+      <h2 id="upload-heading"><span class="step">2</span> Or clean a file you already have</h2>
+      <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="dz-hint">
+        <input id="file-input" type="file" accept=".epub,application/epub+zip" hidden>
+        <p class="dz-title">Drop an EPUB here</p>
+        <p class="dz-hint" id="dz-hint">or click to browse &middot; EPUB 2 and 3 &middot; up to 256&nbsp;MiB</p>
+        <p id="file-name" class="file-name" hidden></p>
+      </div>
+
+      <fieldset class="options">
+        <legend>Options</legend>
+        <label><input type="checkbox" id="opt-remote"> Also strip remote images, fonts and stylesheets</label>
+        <label><input type="checkbox" id="opt-approve"> Remove ambiguous items without asking</label>
+      </fieldset>
+
+      <div class="actions">
+        <button id="inspect-btn" class="button primary" disabled>Inspect file</button>
+        <button id="reset-btn" class="button ghost" hidden>Start over</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="results" class="panel" aria-labelledby="results-heading" hidden>
+      <h2 id="results-heading"><span class="step">3</span> Review the report</h2>
+      <p id="verdict" class="verdict"></p>
+      <dl id="counts" class="counts"></dl>
+      <div id="review-block" class="review" hidden>
+        <h3>Needs your confirmation</h3>
+        <p class="muted">These look like third-party insertions, but could be legitimate citations. Tick the ones to remove.</p>
+        <ul id="review-list" class="review-list"></ul>
+      </div>
+      <h3>All findings</h3>
+      <ul id="findings" class="findings"></ul>
+      <div class="actions">
+        <button id="clean-btn" class="button primary">Clean and download</button>
+      </div>
+    </section>
+
+    <section id="cleaned" class="panel" aria-labelledby="cleaned-heading" hidden>
+      <h2 id="cleaned-heading"><span class="step">4</span> Cleaned copy</h2>
+      <p id="cleaned-summary" class="verdict"></p>
+      <p id="download-line" class="download-line" hidden>
+        <a id="download-link" class="button primary" href="#" download>Download cleaned EPUB</a>
+      </p>
+      <h3>Removed</h3>
+      <ul id="removed" class="removed-list"></ul>
+      <details class="details">
+        <summary>Bookkeeping</summary>
+        <dl id="stats" class="stats"></dl>
+      </details>
+    </section>
+  </main>
+
+  <footer class="colophon">
+    <p><strong>Not a malware scanner.</strong> EPUB Purifier inspects archive structure and markup only. It never executes scripts, and a clean report is not a guarantee that a file is safe.</p>
+    <p>Only clean files you own or are authorised to modify. EPUB Purifier does not remove DRM or bypass access controls, and it links to sources it cannot download from.</p>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
