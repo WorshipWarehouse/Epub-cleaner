@@ -23,6 +23,7 @@ from .base import (
     DownloadResult,
     MinInterval,
     SourceError,
+    isbn_candidates,
     normalize_query,
 )
 from .net import fetch_bytes, looks_like_zip
@@ -238,6 +239,7 @@ class GutenbergSource:
             authors=_authors(entry),
             languages=_languages(entry),
             formats=listed_formats,
+            isbn=_isbns(entry),
             details_url=f"{BASE}/ebooks/{book_id}",
             cover_url=cover,
             downloadable=True,
@@ -296,6 +298,17 @@ def _authors(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
 def _languages(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
     codes = [(_text(node, ".") or (node.text or "").strip()) for node in entry.findall(f"{DCTERMS}language")]
     return tuple(code[:12] for code in codes if code)[:8]
+
+
+def _isbns(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
+    values: list[str] = []
+    for tag in ("identifier", "isbn", "source"):
+        for node in entry.findall(f"{DCTERMS}{tag}"):
+            text = "".join(node.itertext()).strip()
+            candidate, _ = isbn_candidates(text)
+            if candidate and candidate not in values:
+                values.append(candidate)
+    return tuple(values)
 
 
 def _safe_file_name(title: str, book_id: str) -> str:

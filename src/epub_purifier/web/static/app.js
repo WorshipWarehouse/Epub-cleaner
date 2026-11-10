@@ -355,7 +355,9 @@ if (searchForm) {
         make("span", {
           class: "meta",
           text: source.ok
-            ? `${source.result_count} result${source.result_count === 1 ? "" : "s"}`
+            ? source.supports_download
+              ? `${source.result_count} match${source.result_count === 1 ? "" : "es"}`
+              : "search link"
             : "unavailable",
         }),
       ]);
@@ -364,9 +366,70 @@ if (searchForm) {
     }
   }
 
-  function renderListing(listing) {
-    const coverPath = safeCover(listing.cover_url);
-    const initial = (listing.title || "?").trim().charAt(0).toUpperCase() || "?";
+  const matchLabels = {
+    isbn: "ISBN match",
+    exact_title: "Exact title match",
+    title: "Title match",
+    title_author: "Title and author match",
+    title_contains: "Close title match",
+    fuzzy_title: "Fuzzy title match",
+    author: "Author match",
+  };
+
+  function renderSourceEntry(listing) {
+    const row = make("div", { class: "result-source-row" });
+    row.append(make("span", { class: "source-name", text: listing.source_label }));
+
+    if (listing.is_search_link) {
+      row.append(make("span", { class: "badge muted", text: "search link" }));
+      const href = safeHref(listing.details_url);
+      if (href) {
+        row.append(
+          make("a", {
+            class: "button ghost small",
+            href,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            text: `Search ${listing.source_label}`,
+          }),
+        );
+      }
+    } else if (listing.downloadable) {
+      row.append(make("span", { class: "badge good", text: "scan on fetch" }));
+      const button = make("button", {
+        class: "button primary small",
+        type: "button",
+        text: `Fetch from ${listing.source_label}`,
+      });
+      button.addEventListener("click", () => startTransfer(listing, button));
+      row.append(button);
+    } else {
+      row.append(make("span", { class: "badge muted", text: "source page" }));
+      const href = safeHref(listing.details_url);
+      if (href) {
+        row.append(
+          make("a", {
+            class: "button ghost small",
+            href,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            text: "Open source page",
+          }),
+        );
+      }
+    }
+
+    if (listing.download_note) {
+      row.append(make("p", { class: "meta", text: listing.download_note }));
+    }
+    return row;
+  }
+
+  function renderResult(result) {
+    const listings = Array.isArray(result.listings) ? result.listings : [result];
+    const primary = listings.find((item) => !item.is_search_link) || result;
+    const coverPath = safeCover(result.cover_url);
+    const initial = (result.title || "?").trim().charAt(0).toUpperCase() || "?";
     const placeholder = () =>
       make("div", { class: "cover placeholder", "aria-hidden": "true", text: initial });
 
@@ -385,59 +448,50 @@ if (searchForm) {
     }
 
     const meta = [];
-    if (listing.authors && listing.authors.length) meta.push(listing.authors.join(", "));
-    if (listing.formats && listing.formats.length) meta.push(listing.formats.join(" · "));
-    if (listing.languages && listing.languages.length) meta.push(listing.languages.join(", "));
+    if (result.authors && result.authors.length) meta.push(result.authors.join(", "));
+    if (result.formats && result.formats.length) meta.push(result.formats.join(" · "));
+    if (result.languages && result.languages.length) meta.push(result.languages.join(", "));
+    if (result.isbn && result.isbn.length) meta.push(`ISBN ${result.isbn.join(", ")}`);
 
-    const children = [
-      make("p", { class: "result-source", text: listing.source_label }),
-      make("h3", { class: "result-title", text: listing.title }),
-    ];
-    if (meta.length) children.push(make("p", { class: "meta", text: meta.join(" · ") }));
-    if (listing.download_note) children.push(make("p", { class: "meta", text: listing.download_note }));
-
-    if (listing.security && listing.security.status) {
-      const badgeText =
-        listing.security.status === "scan_on_fetch" ? "scan on fetch" : "search link only";
-      children.push(
-        make("p", { class: "meta security" }, [
-          make("span", { class: `badge ${listing.downloadable ? "good" : "muted"}`, text: badgeText }),
-          ` ${listing.security.headline || ""}`,
-        ]),
-      );
+    const children = [];
+    const match = result.match || {};
+    if (matchLabels[match.type]) {
+      children.push(make("p", { class: "result-match", text: matchLabels[match.type] }));
     }
+    children.push(make("h3", { class: "result-title", text: result.title }));
+    if (meta.length) children.push(make("p", { class: "meta", text: meta.join(" · ") }));
 
-    if (listing.downloadable) {
-      const button = make("button", {
-        class: "button primary small",
-        type: "button",
-        text: "Fetch, scan and clean",
-      });
-      button.addEventListener("click", () => startTransfer(listing, button));
-      children.push(make("div", { class: "result-actions" }, [button]));
-    } else {
-      const href = safeHref(listing.details_url);
-      if (href) {
-        children.push(
-          make("div", { class: "result-actions" }, [
-            make("a", {
-              class: "button ghost small",
-              href,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              text: listing.is_search_link
-                ? `Search ${listing.source_label}`
-                : "Open source page",
-            }),
-          ]),
-        );
-      }
+    const sourceBlock = make("div", { class: "result-sources" });
+    for (const listing of listings) sourceBlock.append(renderSourceEntry(listing));
+    children.push(sourceBlock);
+
+    if (primary.security && primary.security.disclaimer) {
+      children.push(make("p", { class: "meta", text: primary.security.disclaimer }));
     }
 
     return make("li", { class: "result-card" }, [
       cover,
       make("div", { class: "result-body" }, children),
     ]);
+  }
+
+  function renderSourceLinks(links) {
+    const block = make("div", { class: "source-search" });
+    block.append(make("p", { class: "meta", text: "No matching book was confirmed. You can still search the link-only sites directly:" }));
+    for (const listing of links || []) {
+      const href = safeHref(listing.details_url);
+      if (!href) continue;
+      block.append(
+        make("a", {
+          class: "button ghost small",
+          href,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          text: `Search ${listing.source_label}`,
+        }),
+      );
+    }
+    return block;
   }
 
   async function startTransfer(listing, button) {
@@ -535,23 +589,45 @@ if (searchForm) {
     transferPanel.hidden = true;
     setSearchStatus("Searching every source…");
 
+    const body = { query };
+    for (const [key, element] of Object.entries({
+      title: $("filter-title"),
+      author: $("filter-author"),
+      isbn: $("filter-isbn"),
+      language: $("filter-language"),
+      format: $("filter-format"),
+    })) {
+      const value = element ? element.value.trim() : "";
+      if (value) body[key] = value;
+    }
+
     try {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Search failed.");
       renderSourceStatuses(payload.sources);
       searchResults.replaceChildren();
-      for (const listing of payload.results) searchResults.append(renderListing(listing));
+      for (const result of payload.results) searchResults.append(renderResult(result));
       if (!payload.results.length) {
-        searchResults.append(
-          make("li", { class: "result-empty", text: "No listings matched that search." }),
-        );
+        const empty = make("li", { class: "result-empty" });
+        empty.append(make("p", { text: "No matching books found." }));
+        if (payload.source_links && payload.source_links.length) {
+          empty.append(renderSourceLinks(payload.source_links));
+        }
+        searchResults.append(empty);
+        setSearchStatus("No matching books found.");
+      } else {
+        const sourceCount = new Set(
+          payload.results.flatMap((result) =>
+            (result.listings || []).filter((listing) => !listing.is_search_link).map((listing) => listing.source),
+          ),
+        ).size;
+        setSearchStatus(`${payload.results.length} matching book(s) across ${sourceCount} source(s).`);
       }
-      setSearchStatus(`${payload.results.length} listing(s) from ${payload.sources.length} source(s).`);
     } catch (error) {
       setSearchStatus(error.message, true);
     } finally {

@@ -33,6 +33,7 @@ class StubSource:
                 authors=("A. Author",),
                 languages=("en",),
                 formats=("EPUB",),
+                isbn=("9780306406157",),
                 details_url="https://example.org/books/42",
                 cover_url="https://example.org/books/42.jpg",
                 downloadable=True,
@@ -109,7 +110,8 @@ class NoEpubSource:
 
 def test_search_exposes_a_security_status_per_listing(client):
     payload = client.post("/api/search", json={"query": "dune"}).json()
-    by_source = {item["source"]: item["security"] for item in payload["results"]}
+    listings = [item for result in payload["results"] for item in result["listings"]]
+    by_source = {item["source"]: item["security"] for item in listings}
     assert by_source["stub"]["status"] == "scan_on_fetch"
     assert "not a guarantee" in by_source["stub"]["disclaimer"].lower()
     assert by_source["annas"]["status"] == "link_only"
@@ -126,10 +128,63 @@ def test_transfer_without_an_epub_is_a_validation_refusal(sample_epub):
 
 def test_search_returns_link_only_sources(client):
     payload = client.post("/api/search", json={"query": "dune"}).json()
-    links = [item for item in payload["results"] if item["is_search_link"]]
+    links = [
+        item
+        for result in payload["results"]
+        for item in result["listings"]
+        if item["is_search_link"]
+    ]
     assert {item["source"] for item in links} == {"annas", "oceanofpdf"}
     assert all(item["downloadable"] is False for item in links)
     assert all(item["details_url"].startswith("https://") for item in links)
+
+
+def test_search_groups_sources_for_one_book(client):
+    payload = client.post("/api/search", json={"query": "dune"}).json()
+    result = payload["results"][0]
+    assert result["source_count"] == 1
+    assert {
+        item["source"] for item in result["listings"] if not item["is_search_link"]
+    } == {"stub"}
+
+
+def test_search_filters_out_a_different_author(client):
+    payload = client.post(
+        "/api/search", json={"query": "dune", "author": "Wrong Author"}
+    ).json()
+    assert payload["results"] == []
+    assert payload["source_links"]
+
+
+def test_search_filters_by_language_and_format(client):
+    payload = client.post("/api/search", json={"query": "dune", "language": "en"}).json()
+    assert len(payload["results"]) == 1
+
+    payload = client.post("/api/search", json={"query": "dune", "language": "fr"}).json()
+    assert payload["results"] == []
+
+    payload = client.post("/api/search", json={"query": "dune", "format": "epub"}).json()
+    assert len(payload["results"]) == 1
+
+    payload = client.post("/api/search", json={"query": "dune", "format": "PDF"}).json()
+    assert payload["results"] == []
+
+
+def test_search_filters_by_title_and_isbn(client):
+    payload = client.post(
+        "/api/search", json={"query": "dune", "title": "dune volume one"}
+    ).json()
+    assert len(payload["results"]) == 1
+
+    payload = client.post(
+        "/api/search", json={"query": "dune", "isbn": "9780306406157"}
+    ).json()
+    assert len(payload["results"]) == 1
+
+    payload = client.post(
+        "/api/search", json={"query": "dune", "isbn": "9780141439518"}
+    ).json()
+    assert payload["results"] == []
 
 
 def test_transfer_stays_available_until_deleted(client):

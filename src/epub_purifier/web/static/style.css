@@ -274,7 +274,9 @@ body.file-dragging .dropzone { border-color: var(--accent); background: var(--bg
   border: 0;
 }
 
-.search-form { display: flex; gap: .6rem; margin-top: 1rem; flex-wrap: wrap; }
+.search-form { display: grid; gap: .7rem; margin-top: 1rem; }
+
+.search-row { display: flex; gap: .6rem; flex-wrap: wrap; }
 
 .search-input {
   flex: 1 1 16rem;
@@ -287,6 +289,42 @@ body.file-dragging .dropzone { border-color: var(--accent); background: var(--bg
 }
 
 .search-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.search-filters summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: .88rem;
+  width: fit-content;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: .6rem;
+  margin-top: .6rem;
+}
+
+.filter-field {
+  display: grid;
+  gap: .25rem;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.filter-field input,
+.filter-field select {
+  font: inherit;
+  font-size: .9rem;
+  color: var(--text);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .45rem .6rem;
+  min-width: 0;
+}
+
+.filter-field input:focus-visible,
+.filter-field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .source-list { display: grid; gap: .35rem; margin-top: .6rem; }
 
@@ -349,11 +387,22 @@ body.file-dragging .dropzone { border-color: var(--accent); background: var(--bg
 }
 
 .result-body { min-width: 0; display: grid; gap: .2rem; align-content: start; }
-.result-source { margin: 0; font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.result-match { margin: 0; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
 .result-title { margin: 0; font-size: 1rem; }
 .result-body .meta { margin: 0; }
-.result-actions { margin-top: .5rem; }
+.result-sources { display: grid; gap: .4rem; margin-top: .55rem; }
+.result-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .55rem;
+  border-top: 1px solid var(--line);
+  padding-top: .45rem;
+}
+.result-source-row .meta { flex-basis: 100%; }
 .result-empty { color: var(--muted); font-size: .92rem; }
+.source-search { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .5rem; }
+.source-search .meta { flex-basis: 100%; margin: 0; }
 
 .button.small { padding: .4rem .8rem; font-size: .88rem; }
 

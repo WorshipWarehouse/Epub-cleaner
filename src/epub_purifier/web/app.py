@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from ..config import PurifierConfig
 from ..errors import DrmProtectedError, PurifierError, ValidationError
 from ..pipeline import clean_epub, inspect_epub
-from ..sources.base import BookListing, BookSource, SearchQueryError, SourceError
+from ..sources.base import BookListing, BookResult, BookSource, SearchQueryError, SourceError
 from ..sources.registry import default_sources, search_books
 from ..transfer import (
     TransferBusy,
@@ -109,6 +109,11 @@ class CleanRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=2, max_length=200)
     sources: list[str] | None = Field(default=None, max_length=8)
+    title: str | None = Field(default=None, max_length=200)
+    author: str | None = Field(default=None, max_length=200)
+    isbn: str | None = Field(default=None, max_length=32)
+    language: str | None = Field(default=None, max_length=32)
+    format: str | None = Field(default=None, max_length=32)
 
 
 class TransferRequest(BaseModel):
@@ -217,13 +222,23 @@ def create_app(
                 raise HTTPException(status_code=400, detail=f"Unknown source: {', '.join(unknown)}")
             selected = [source for source in source_list if source.name in wanted]
         try:
-            response = await asyncio.to_thread(search_books, payload.query, selected)
+            response = await asyncio.to_thread(
+                search_books,
+                payload.query,
+                selected,
+                title=payload.title,
+                author=payload.author,
+                isbn=payload.isbn,
+                language=payload.language,
+                format=payload.format,
+            )
         except SearchQueryError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SourceError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         body = response.to_dict()
-        body["results"] = [_public_listing(listing) for listing in response.results]
+        body["results"] = [_public_result(result) for result in response.results]
+        body["source_links"] = [_public_listing(listing) for listing in response.source_links]
         body["notice"] = SEARCH_NOTICE
         return JSONResponse(body)
 
@@ -515,6 +530,18 @@ def _safe_display_name(name: str | None) -> str:
     candidate = "".join(ch for ch in candidate if ch.isprintable() and ch not in {"/", "\\"})
     candidate = candidate.strip() or "upload.epub"
     return candidate[:120]
+
+
+def _public_result(result: BookResult) -> dict[str, object]:
+    """Serialise a grouped book, preserving per-source actions and metadata."""
+
+    payload = result.to_dict()
+    primary = result.primary
+    if primary.cover_url and primary.book_id and not primary.is_search_link:
+        payload["cover_url"] = f"/api/cover/{primary.source}/{primary.book_id}"
+    payload["listings"] = [_public_listing(listing) for listing in result.listings]
+    payload["security"] = _listing_security(primary)
+    return payload
 
 
 def _public_listing(listing: BookListing) -> dict[str, object]:

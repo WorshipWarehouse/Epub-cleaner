@@ -19,6 +19,7 @@ from .base import (
     DownloadResult,
     MinInterval,
     SourceError,
+    isbn_candidates,
     normalize_query,
 )
 from .internetarchive import COVER, InternetArchiveSource
@@ -30,7 +31,7 @@ ALLOWED_HOSTS = ("openlibrary.org",)
 
 MAX_API_BYTES = 4 * 1024 * 1024
 REQUEST_INTERVAL = 1.0
-FIELDS = "key,title,author_name,language,ia,ebook_access"
+FIELDS = "key,title,author_name,language,ia,ebook_access,isbn"
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$")
 #: Audio derivatives carry no EPUB, so another scan is preferred when offered.
@@ -96,6 +97,7 @@ class OpenLibrarySource:
                     authors=_names(doc.get("author_name")),
                     languages=_names(doc.get("language")),
                     formats=("EPUB",),
+                    isbn=_isbns(doc.get("isbn")),
                     details_url=_details_url(doc.get("key")),
                     cover_url=COVER.format(identifier=urllib.parse.quote(identifier)),
                     downloadable=True,
@@ -181,6 +183,21 @@ def _names(value: object) -> tuple[str, ...]:
         return ()
     names = [" ".join(item.split())[:120] for item in candidates]
     return tuple(name for name in names if name)[:8]
+
+
+def _isbns(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        candidates = [value]
+    elif isinstance(value, list):
+        candidates = [item for item in value if isinstance(item, str)]
+    else:
+        return ()
+    values: list[str] = []
+    for candidate in candidates:
+        normalized, _ = isbn_candidates(candidate)
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return tuple(values)[:8]
 
 
 __all__ = ["OpenLibrarySource", "REQUEST_INTERVAL", "SEARCH"]

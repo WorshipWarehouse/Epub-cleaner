@@ -20,6 +20,7 @@ from .base import (
     DownloadResult,
     MinInterval,
     SourceError,
+    isbn_candidates,
     normalize_query,
 )
 from .net import fetch_bytes, looks_like_zip
@@ -76,6 +77,7 @@ class InternetArchiveSource:
             ("fl[]", "title"),
             ("fl[]", "creator"),
             ("fl[]", "language"),
+            ("fl[]", "isbn"),
             ("rows", "20"),
             ("page", "1"),
             ("output", "json"),
@@ -102,6 +104,7 @@ class InternetArchiveSource:
                     authors=_names(doc.get("creator")),
                     languages=_names(doc.get("language")),
                     formats=("EPUB",),
+                    isbn=_isbns(doc.get("isbn")),
                     details_url=f"{BASE}/details/{urllib.parse.quote(identifier)}",
                     cover_url=COVER.format(identifier=urllib.parse.quote(identifier)),
                     downloadable=True,
@@ -218,6 +221,21 @@ def _names(value: object) -> tuple[str, ...]:
         return ()
     names = [" ".join(item.split())[:120] for item in candidates]
     return tuple(name for name in names if name)[:8]
+
+
+def _isbns(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        candidates = [value]
+    elif isinstance(value, list):
+        candidates = [item for item in value if isinstance(item, str)]
+    else:
+        return ()
+    values: list[str] = []
+    for candidate in candidates:
+        normalized, _ = isbn_candidates(candidate)
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return tuple(values)[:8]
 
 
 def _pick_epub_file(files: object) -> str | None:
