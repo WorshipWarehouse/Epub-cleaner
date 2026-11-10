@@ -31,6 +31,9 @@ All notable changes to this project are documented here. The format follows
   brand's domain suffix counts toward how much of the block the brand occupies.
 - Inline `<style>` bodies are no longer also scored as promotional text blocks,
   so one CSS declaration produces one finding instead of two.
+- Quotations, citations and footnotes are capped below the review threshold, so
+  they are reported but never offered for removal however strong the other
+  signals are.
 - Search results now report a per-listing security status (scan-on-fetch versus
   link-only) instead of omitting the field.
 - A book without an EPUB edition is refused as a validation error (422) rather

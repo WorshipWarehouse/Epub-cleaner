@@ -351,7 +351,8 @@ def _score_brand_block(container: Tag, hits: list[str], ctx: Context) -> tuple[f
         score += 0.15
         reasons.append("links to promotional site")
 
-    if _is_citation(container, attributes, ctx):
+    citation = _is_citation(container, attributes, ctx)
+    if citation:
         score -= 0.5
         reasons.append("citation context")
 
@@ -368,6 +369,11 @@ def _score_brand_block(container: Tag, hits: list[str], ctx: Context) -> tuple[f
         reasons.append("brand incidental")
 
     confidence = max(0.05, min(0.99, round(score, 2)))
+    if citation:
+        # Quoted, cited and footnoted material is legitimate book content. Keep
+        # it visible in the report, but never high enough to be offered for
+        # removal, whatever other signals stack up around it.
+        confidence = min(confidence, round(ctx.config.review_confidence - 0.01, 2))
     return confidence, ", ".join(reasons)
 
 

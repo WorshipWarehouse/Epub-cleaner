@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 from ..config import PurifierConfig
 from ..opf import PackageDocument
 
-
 #: Optional domain suffix that belongs to a brand mention (``.com``, ``.co.uk``).
 _DOMAIN_TAIL = re.compile(r"(?:\.[a-z]{2,12})+\b", re.IGNORECASE)
 

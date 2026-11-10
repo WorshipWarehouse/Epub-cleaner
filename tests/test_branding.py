@@ -128,6 +128,39 @@ def test_css_branding_and_expression_removed(sample_epub):
     assert "font-family: Georgia, serif" in css
 
 
+FOOTNOTE_CHAPTER = """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Notes</title></head>
+<body>
+  <h1>Notes</h1>
+  <p>Ordinary prose about attention and typography.</p>
+  <aside epub:type="footnote" class="footnote"><p>Source: oceanofpdf.com, accessed 12 March 2020.</p></aside>
+</body>
+</html>"""
+
+
+def test_footnote_citation_is_informational_not_reviewable():
+    """A footnote citation is reported, but never offered for removal."""
+
+    from .conftest import simple_book
+
+    data = simple_book(FOOTNOTE_CHAPTER)
+    report = inspect_epub(data)
+    footnote = [
+        finding
+        for finding in report.findings
+        if finding.evidence and "Source: oceanofpdf.com" in finding.evidence
+    ]
+    assert footnote, "the citation should still be reported"
+    assert footnote[0].remediation is Remediation.REPORT
+    assert footnote[0].confidence < 0.5
+    assert report.reviewable() == []
+
+    chapter = _entries(clean_epub(data).data)["OEBPS/chapter1.xhtml"].decode()
+    assert "Source: oceanofpdf.com" in chapter
+    assert "Ordinary prose about attention" in chapter
+
+
 def test_citation_is_never_removed(citation_epub):
     report = inspect_epub(citation_epub)
     mentions = [f for f in report.findings if f.category is Category.BRANDING]
