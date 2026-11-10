@@ -20,8 +20,8 @@ import time
 import urllib.parse
 from xml.etree.ElementTree import ParseError
 
-from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring
 
 from .base import (
     BookListing,
@@ -240,9 +240,11 @@ def _decode_id(book_id: str) -> tuple[str, ...]:
 
 
 def _download_url(segments: tuple[str, ...]) -> str:
+    # The feed's acquisition href carries ?source=feed; without it the same
+    # path answers with the ebook's HTML page instead of the EPUB.
     return (
         f"{BASE}/ebooks/{'/'.join(segments)}"
-        f"/downloads/{'_'.join(segments)}.epub"
+        f"/downloads/{'_'.join(segments)}.epub?source=feed"
     )
 
 

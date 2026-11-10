@@ -162,10 +162,11 @@ def test_registry_places_open_library_among_download_sources():
         "wikisource",
         "internetarchive",
         "openlibrary",
+        "standardebooks",
         "annas",
         "oceanofpdf",
     ]
     library = next(source for source in sources if source.name == "openlibrary")
     assert library.supports_download is True
     assert library.label == "Open Library"
-    assert sum(source.supports_download for source in sources) == 4
+    assert sum(source.supports_download for source in sources) == 5

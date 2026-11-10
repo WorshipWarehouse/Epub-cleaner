@@ -160,7 +160,7 @@ def test_download_fetches_the_entry_epub():
     url, kwargs = calls[-1]
     assert url == (
         "https://standardebooks.org/ebooks/joseph-jacobs/indian-fairy-tales"
-        "/downloads/joseph-jacobs_indian-fairy-tales.epub"
+        "/downloads/joseph-jacobs_indian-fairy-tales.epub?source=feed"
     )
     assert kwargs["allowed_hosts"] == ("standardebooks.org",)
     assert kwargs["max_bytes"] > 0
