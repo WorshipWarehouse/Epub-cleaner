@@ -198,6 +198,8 @@ def group_listings(ranked: Iterable[RankedListing]) -> tuple[BookResult, ...]:
         return ()
 
     parents = list(range(len(items)))
+    listing_isbns = [_all_isbn_keys(item.listing) for item in items]
+    root_isbns = [set(keys) for keys in listing_isbns]
 
     def find(index: int) -> int:
         while parents[index] != index:
@@ -207,12 +209,25 @@ def group_listings(ranked: Iterable[RankedListing]) -> tuple[BookResult, ...]:
 
     def union(left: int, right: int) -> None:
         left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parents[right_root] = left_root
+        if left_root == right_root:
+            return
+        left_keys = root_isbns[left_root]
+        right_keys = root_isbns[right_root]
+        # An ISBN-less listing can match both editions; do not let it bridge
+        # roots that already disagree about the edition.
+        if left_keys and right_keys and left_keys.isdisjoint(right_keys):
+            return
+        parents[right_root] = left_root
+        root_isbns[left_root] = left_keys | right_keys
 
     for left in range(len(items)):
         for right in range(left + 1, len(items)):
-            if _same_book(items[left].listing, items[right].listing):
+            if _same_book(
+                items[left].listing,
+                items[right].listing,
+                listing_isbns[left],
+                listing_isbns[right],
+            ):
                 union(left, right)
 
     groups: dict[int, list[RankedListing]] = {}
@@ -368,9 +383,12 @@ def _passes_filters(listing: BookListing, criteria: SearchCriteria) -> bool:
     return True
 
 
-def _same_book(left: BookListing, right: BookListing) -> bool:
-    left_isbns = _all_isbn_keys(left)
-    right_isbns = _all_isbn_keys(right)
+def _same_book(
+    left: BookListing,
+    right: BookListing,
+    left_isbns: set[str],
+    right_isbns: set[str],
+) -> bool:
     if left_isbns and right_isbns:
         # Different known ISBNs are different editions, even when the title is
         # the same. Keep them as separate cards so the user can choose.

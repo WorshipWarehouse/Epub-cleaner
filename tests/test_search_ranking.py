@@ -174,6 +174,25 @@ def test_different_isbns_keep_editions_separate():
     assert len(results) == 2
 
 
+def test_isbn_less_listing_does_not_bridge_different_editions():
+    results = groups(
+        [
+            listing("Pride and Prejudice", ("Jane Austen",), book_id="isbn-x", isbn=(ISBN_13,)),
+            listing("Pride and Prejudice", ("Jane Austen",), book_id="no-isbn"),
+            listing(
+                "Pride and Prejudice",
+                ("Jane Austen",),
+                book_id="isbn-y",
+                isbn=(OTHER_ISBN_13,),
+            ),
+        ],
+        "pride and prejudice",
+    )
+
+    assert len(results) == 2
+    assert {result.isbn for result in results} == {(ISBN_13,), (OTHER_ISBN_13,)}
+
+
 def test_isbn_search_only_returns_the_matching_isbn():
     results = groups(
         [
