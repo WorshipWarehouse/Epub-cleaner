@@ -153,6 +153,14 @@ are open to everyone"*. That public New Releases feed
 a searchable catalogue, so EPUB Purifier does not use it as a search source and
 does not scrape the site's HTML as a workaround.
 
+Anna's Archive and Ocean of PDF stay link-only on purpose. Neither can show that
+a given file is distributed with the publisher's authorisation, so fetching their
+catalogues automatically would turn EPUB Purifier into a downloader for
+unauthorised copies, which this project's scope rules out. Cleaning is still
+available for those books: download the file yourself in the browser, then use
+the upload path — the same validation, scanning and cleaning pipeline runs on any
+EPUB you supply, whatever its origin.
+
 Results show the source, available formats, language and a cover image (proxied
 through this server, so your browser never contacts the source). Only listings
 with an authorised EPUB get a **Fetch, scan and clean** button.
