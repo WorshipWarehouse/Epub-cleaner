@@ -1,0 +1,29 @@
+{
+  "name": "epub-purifier",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remove third-party promotions, trackers and active content from EPUB files, and inspect them for security threats.",
+  "license": "MIT",
+  "homepage": "https://github.com/WorshipWarehouse/Epub-cleaner#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WorshipWarehouse/Epub-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WorshipWarehouse/Epub-cleaner/issues"
+  },
+  "keywords": [
+    "epub",
+    "ebook",
+    "security",
+    "privacy",
+    "sanitizer",
+    "debloat",
+    "epub3"
+  ],
+  "scripts": {
+    "start": "epub-purifier-web",
+    "test": "python -m pytest -q",
+    "lint": "ruff check src tests proof"
+  }
+}
