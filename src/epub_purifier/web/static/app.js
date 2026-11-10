@@ -64,20 +64,47 @@ dropzone.addEventListener("keydown", (event) => {
 });
 fileInput.addEventListener("change", () => chooseFile(fileInput.files[0]));
 
-for (const eventName of ["dragenter", "dragover"]) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.add("dragover");
-  });
+// A downloaded book can be dropped anywhere on the page, not only on the
+// dashed box. Only file drags are intercepted, so dropping selected text or a
+// link keeps the browser's normal behaviour.
+function hasFiles(event) {
+  const types = event.dataTransfer && event.dataTransfer.types;
+  return Boolean(types && Array.from(types).includes("Files"));
 }
-for (const eventName of ["dragleave", "drop"]) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.remove("dragover");
-  });
+
+let dragDepth = 0;
+
+function setDragActive(active) {
+  dropzone.classList.toggle("dragover", active);
+  document.body.classList.toggle("file-dragging", active);
 }
-dropzone.addEventListener("drop", (event) => {
-  const file = event.dataTransfer && event.dataTransfer.files[0];
+
+window.addEventListener("dragenter", (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  dragDepth += 1;
+  setDragActive(true);
+});
+
+window.addEventListener("dragover", (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  setDragActive(true);
+});
+
+window.addEventListener("dragleave", () => {
+  if (dragDepth === 0) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) setDragActive(false);
+});
+
+window.addEventListener("drop", (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  dragDepth = 0;
+  setDragActive(false);
+  const file = event.dataTransfer.files[0];
   chooseFile(file);
 });
 

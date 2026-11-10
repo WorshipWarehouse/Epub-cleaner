@@ -133,6 +133,9 @@ main { padding-block: 1.75rem 2.5rem; display: grid; gap: 1.25rem; }
   outline: none;
 }
 
+body.file-dragging { cursor: copy; }
+body.file-dragging .dropzone { border-color: var(--accent); background: var(--bg-soft); }
+
 .dz-title { margin: 0; font-weight: 600; }
 .dz-hint { margin: .35rem 0 0; color: var(--muted); font-size: .9rem; }
 
