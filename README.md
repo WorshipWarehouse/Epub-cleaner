@@ -204,10 +204,12 @@ Fetched books are transient by design:
 - `DELETE /api/transfer/{id}` (the UI's **Delete now** button) removes the
   cleaned copy, its report and metadata immediately.
 - Metadata (`job.json`) and reports are written alongside each job under a
-  `0700` root with `0600` files. With `EPUB_PURIFIER_TRANSFER_DIR` pointing at
-  persistent storage (the Docker image does), a restarted server rehydrates the
-  surviving jobs and deletes the ones whose five hours already elapsed. An
-  interrupted download is treated as abandoned and removed rather than resumed.
+  `0700` root with `0600` files. The default store is a stable path under the
+  system temp directory, so a restarted process rehydrates the surviving jobs
+  and deletes the ones whose five hours already elapsed. Set
+  `EPUB_PURIFIER_TRANSFER_DIR` (the Docker image does) for a location that also
+  survives a reboot or a replaced container. An interrupted download is treated
+  as abandoned and removed rather than resumed.
 - Storage use is capped (`EPUB_PURIFIER_MAX_STORAGE_MB`), failed or oversized
   downloads leave nothing behind, and asking for a book already being prepared
   reuses that job instead of downloading it twice.
@@ -221,7 +223,8 @@ downloads is never fetched from, even if asked.
 
 Environment knobs: `EPUB_PURIFIER_TRANSFER_TTL` (seconds, default 18000 = five
 hours), `EPUB_PURIFIER_CLEANUP_INTERVAL` (seconds, default 600),
-`EPUB_PURIFIER_TRANSFER_DIR` (persistent storage path), `EPUB_PURIFIER_MAX_TRANSFERS`
+`EPUB_PURIFIER_TRANSFER_DIR` (store path, default
+`<system temp>/epub-purifier-transfers`), `EPUB_PURIFIER_MAX_TRANSFERS`
 (default 16), `EPUB_PURIFIER_MAX_DOWNLOAD_MB` (default 64),
 `EPUB_PURIFIER_MAX_STORAGE_MB` (default 1024), `EPUB_PURIFIER_SEARCH_RATE_LIMIT`
 and `EPUB_PURIFIER_TRANSFER_RATE_LIMIT` (requests per minute per client).

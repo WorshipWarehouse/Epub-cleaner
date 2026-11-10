@@ -184,10 +184,13 @@ class TransferService:
         elif configured:
             self.root = Path(configured)
         else:
-            # A unique directory per process is the safe local default. Set
-            # EPUB_PURIFIER_TRANSFER_DIR to a persistent path (the Docker image
-            # does) so job metadata and files also survive a restart.
-            self.root = Path(tempfile.mkdtemp(prefix="epub-purifier-transfers-"))
+            # A stable path under the system temp directory, so a restarted
+            # process finds and expires the same jobs instead of orphaning
+            # them. Set EPUB_PURIFIER_TRANSFER_DIR (the Docker image does) for
+            # a location that also survives a reboot or a replaced container.
+            self.root = Path(tempfile.gettempdir()) / "epub-purifier-transfers"
+        if self.root.is_symlink():
+            raise TransferError("The temporary transfer directory must not be a symlink")
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with contextlib.suppress(OSError):  # pragma: no cover - unusual filesystem
             os.chmod(self.root, 0o700)

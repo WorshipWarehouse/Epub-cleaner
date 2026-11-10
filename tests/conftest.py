@@ -259,6 +259,18 @@ def simple_book(chapter: str, *, extra_entries: list[tuple[str, bytes | str]] | 
 
 
 # -- fixtures ------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def isolated_transfer_store(tmp_path, monkeypatch):
+    """Give every test its own temporary-download store.
+
+    The service defaults to a stable path under the system temp directory so a
+    restart can expire the same jobs; tests must not share that store or reuse
+    each other's completed transfers.
+    """
+
+    monkeypatch.setenv("EPUB_PURIFIER_TRANSFER_DIR", str(tmp_path / "transfer-store"))
+
+
 @pytest.fixture
 def sample_epub() -> bytes:
     return sample_book()

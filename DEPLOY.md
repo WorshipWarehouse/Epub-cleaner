@@ -191,7 +191,7 @@ changing one.
 | `EPUB_PURIFIER_TRANSFER_RATE_LIMIT` | `10` | Source-transfer requests per client per 60-second window. |
 | `EPUB_PURIFIER_TRANSFER_TTL` | `18000` | Seconds a fetched transfer is retained after the server starts downloading it (five hours). It is deleted at expiry whether or not it was downloaded. |
 | `EPUB_PURIFIER_CLEANUP_INTERVAL` | `600` | Seconds between background cleanup passes (ten minutes). Expiry is also checked on every access. |
-| `EPUB_PURIFIER_TRANSFER_DIR` | temp directory | Where cleaned downloads and their `job.json` metadata live. Set it to persistent storage so a restart can expire and delete surviving jobs. The Docker image sets `/var/lib/epub-purifier/transfers`. |
+| `EPUB_PURIFIER_TRANSFER_DIR` | `<system temp>/epub-purifier-transfers` | Where cleaned downloads and their `job.json` metadata live. The default survives a process restart; point it at persistent storage (the Docker image uses `/var/lib/epub-purifier/transfers`) so cleanup also spans a reboot or a replaced container. |
 | `EPUB_PURIFIER_MAX_TRANSFERS` | `16` | Maximum simultaneous source transfers. |
 | `EPUB_PURIFIER_MAX_DOWNLOAD_MB` | `64` | Maximum fetched EPUB size, in MiB. |
 | `EPUB_PURIFIER_MAX_STORAGE_MB` | `1024` | Maximum temporary storage used by cleaned downloads; new transfers are refused when it is full. |
