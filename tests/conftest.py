@@ -8,7 +8,9 @@ archives.
 
 from __future__ import annotations
 
+import importlib
 import io
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -18,6 +20,13 @@ import pytest
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+# The web tests use ``pytest.importorskip`` so the suite still runs without the
+# optional extra. CI sets this variable so a missing dependency fails collection
+# loudly instead of quietly turning the web coverage into a skip.
+if os.environ.get("EPUB_PURIFIER_REQUIRE_WEB") == "1":
+    for _optional in ("fastapi", "httpx", "multipart", "uvicorn"):
+        importlib.import_module(_optional)
 
 MIMETYPE = b"application/epub+zip"
 

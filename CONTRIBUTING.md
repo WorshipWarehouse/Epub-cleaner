@@ -9,7 +9,7 @@ real-world insertions, fewer false positives, and security hardening.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,web]"
 pytest -q
-ruff check src tests
+ruff check src tests proof
 python proof/prove.py
 ```
 

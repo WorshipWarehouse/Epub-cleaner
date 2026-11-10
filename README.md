@@ -1,5 +1,7 @@
 # EPUB Purifier
 
+[![CI](https://github.com/epub-purifier/epub-purifier/actions/workflows/ci.yml/badge.svg)](https://github.com/epub-purifier/epub-purifier/actions/workflows/ci.yml)
+
 **Clean EPUB files. Keep the book.**
 
 EPUB Purifier removes third-party promotional insertions from EPUB files — the
@@ -396,7 +398,7 @@ writing any output.
 ```bash
 pip install -e ".[dev,web]"
 pytest -q          # full suite, including hostile archives
-ruff check src tests
+ruff check src tests proof
 python proof/prove.py  # end-to-end proof against the real CLI (see below)
 ```
 
@@ -414,6 +416,26 @@ only to `proof/fixtures/` and `proof/work/`, both git-ignored.
 Pass `--epubcheck /path/to/epubcheck.jar` (the official W3C release, downloaded
 separately; it is not a dependency) to have EPUBCheck judge every cleaned output
 and fail the proof on any FATAL or ERROR message.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and
+pull request and enforces what this README claims:
+
+- **Lint** — `ruff check src tests proof` on Python 3.12.
+- **Tests** — the full suite on Python 3.10–3.13 with the `dev` and `web` extras
+  installed. The job fails if *any* test is skipped, so a missing optional
+  dependency cannot hide behind `importorskip`; setting
+  `EPUB_PURIFIER_REQUIRE_WEB=1` makes the conftest fail collection instead.
+- **Web** — imports FastAPI, uvicorn, httpx and python-multipart, runs the web
+  test modules, then starts `epub-purifier-web` and requests `/api/health` and
+  `/` from it.
+- **Proof** — the independent harness driving the installed CLI on its own
+  fixtures.
+
+CI installs from PyPI only and uses no secrets. EPUBCheck is deliberately not
+downloaded there: the proof harness accepts `--epubcheck` but never requires it,
+so spec conformance stays a local, opt-in check.
 
 ### Layout
 

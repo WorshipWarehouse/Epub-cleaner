@@ -1,8 +1,15 @@
 name: CI
 
+# Enforces the guarantees the README makes. Every command below is one that
+# CONTRIBUTING documents; the jobs install into .venv so the proof harness finds
+# the CLI where it expects it.
+#
+# Network access is limited to PyPI. EPUBCheck is deliberately not downloaded:
+# the proof harness accepts --epubcheck but never requires it, so spec
+# conformance stays a local, opt-in check instead of a flaky CI download.
+
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -10,22 +17,31 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   lint:
-    name: Lint
+    name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install ruff
-        run: python -m pip install --upgrade pip ruff
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev,web]"
       - name: Ruff
-        run: ruff check src tests
+        run: .venv/bin/ruff check src tests proof
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -33,22 +49,113 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      # Without the extras the web tests would skip; with this set the conftest
+      # raises at collection instead, so a broken install cannot look green.
+      EPUB_PURIFIER_REQUIRE_WEB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install with dev and web extras
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev,web]"
+      - name: Test
+        run: .venv/bin/python -m pytest --junitxml=pytest.xml
+      - name: No test may be skipped
+        run: |
+          .venv/bin/python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          cases = list(ET.parse("pytest.xml").getroot().iter("testcase"))
+          skipped = [case.get("name") for case in cases if case.find("skipped") is not None]
+          if skipped:
+              print("skipped tests are not allowed in CI:", *skipped, sep="\n  ")
+              raise SystemExit(1)
+          print(f"{len(cases)} test(s) executed, none skipped")
+          PY
+
+  web:
+    name: Web extras (import + serve)
+    runs-on: ubuntu-latest
+    env:
+      EPUB_PURIFIER_REQUIRE_WEB: "1"
+      EPUB_PURIFIER_HOST: "127.0.0.1"
+      EPUB_PURIFIER_PORT: "8765"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install with web extras
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev,web]"
+      - name: Import the web app
+        run: |
+          .venv/bin/python -c "import fastapi, httpx, multipart, uvicorn; from epub_purifier.web.app import create_app; print('web extras importable:', type(create_app()).__name__)"
+      - name: Web tests must run
+        run: .venv/bin/python -m pytest tests/test_web.py tests/test_web_search.py --junitxml=web.xml
+      - name: Assert the web tests ran and none skipped
+        run: |
+          .venv/bin/python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          cases = list(ET.parse("web.xml").getroot().iter("testcase"))
+          skipped = [case.get("name") for case in cases if case.find("skipped") is not None]
+          if skipped:
+              raise SystemExit(f"web tests skipped: {skipped}")
+          if len(cases) < 23:
+              raise SystemExit(f"expected at least 23 web tests to run, saw {len(cases)}")
+          print(f"{len(cases)} web test(s) executed, none skipped")
+          PY
+      - name: Serve the app and request it
+        run: |
+          .venv/bin/epub-purifier-web >web.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8765/api/health -o health.json; then break; fi
+            sleep 0.2
+          done
+          cat health.json
+          .venv/bin/python -c "import json; assert json.load(open('health.json'))['status'] == 'ok'"
+          curl -fsS http://127.0.0.1:8765/ -o index.html
+          grep -q "EPUB Purifier" index.html
+          echo "served /api/health and / successfully"
+      - name: Server log
+        if: failure()
+        run: cat web.log
+
+  proof:
+    name: Proof harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,web]"
-      - name: Test
-        run: pytest -q
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev,web]"
+      - name: Prove the CLI end to end
+        run: .venv/bin/python proof/prove.py
 
   package:
-    name: Build sdist and wheel
+    name: Package (sdist + wheel)
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:
@@ -56,6 +163,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Build
         run: |
           python -m pip install --upgrade pip build

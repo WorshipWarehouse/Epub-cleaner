@@ -19,6 +19,8 @@ dist/
 .coverage
 coverage.xml
 htmlcov/
+pytest.xml
+web.xml
 
 # Linters
 .ruff_cache/
