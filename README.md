@@ -134,9 +134,24 @@ each one offers:
 | Anna's Archive | link to its search page | none: no authorised public API |
 | Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
 
-Standard Ebooks is deliberately absent: its catalogue feed answers `401` without
-an account token, and scraping its HTML pages would trade an official interface
-for a fragile one.
+Standard Ebooks is deliberately absent, and that exclusion is a verified status
+rather than an assumption. Probed on 2026-11-10 with an
+`Accept: application/atom+xml` header and a plain client user agent, its
+documented catalogue feeds — `https://standardebooks.org/feeds/opds`,
+`https://standardebooks.org/feeds/opds/all` and
+`https://standardebooks.org/feeds/atom/all` — all answer
+`401 Unauthorized` with
+
+```
+WWW-Authenticate: Basic realm="Enter your Patrons Circle email address and leave the password empty."
+```
+
+The service itself explains the gate: *"Access to our other feeds is a benefit
+of membership in our Patrons Circle"* and *"New Releases RSS/Atom ebook feeds
+are open to everyone"*. That public New Releases feed
+(`/feeds/atom/new-releases`, `200 application/atom+xml`) is a release list, not
+a searchable catalogue, so EPUB Purifier does not use it as a search source and
+does not scrape the site's HTML as a workaround.
 
 Results show the source, available formats, language and a cover image (proxied
 through this server, so your browser never contacts the source). Only listings
