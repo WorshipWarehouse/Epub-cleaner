@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from epub_purifier.sources.base import DownloadResult, SourceError
+from epub_purifier.sources.base import DownloadRefused, DownloadResult, SourceError
 from epub_purifier.transfer import (
     BLOCKING_RULES,
     TransferRejected,
@@ -49,6 +49,19 @@ def make_service(tmp_path, data=b"", **kwargs):
     source = FakeSource(data=data)
     service = TransferService(root=root, sources=[source], **kwargs)
     return service, source
+
+
+def test_missing_epub_is_a_rejection_not_a_forbidden_source(tmp_path):
+    source = FakeSource(
+        error=DownloadRefused("Project Gutenberg does not list an EPUB edition for this book")
+    )
+    service = TransferService(root=tmp_path / "transfers", sources=[source])
+
+    with pytest.raises(TransferRejected) as excinfo:
+        service.start("fake", "28838")
+
+    assert "EPUB edition" in str(excinfo.value)
+    assert not list((tmp_path / "transfers").rglob("*.epub"))
 
 
 def test_transfer_cleans_and_deletes_the_raw_download(tmp_path, sample_epub):

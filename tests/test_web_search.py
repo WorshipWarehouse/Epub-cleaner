@@ -9,7 +9,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from epub_purifier.sources.base import BookListing, DownloadResult  # noqa: E402
+from epub_purifier.sources.base import BookListing, DownloadRefused, DownloadResult  # noqa: E402
 from epub_purifier.sources.links import ANNAS_ARCHIVE, OCEAN_OF_PDF  # noqa: E402
 from epub_purifier.web.app import create_app  # noqa: E402
 
@@ -89,6 +89,39 @@ def test_search_rejects_unknown_source(client):
 
 def test_search_rejects_short_query(client):
     assert client.post("/api/search", json={"query": "x"}).status_code == 422
+
+
+class NoEpubSource:
+    name = "noepub"
+    label = "No EPUB Library"
+    supports_download = True
+    note = "test source without downloadable editions"
+
+    def search(self, query):
+        return []
+
+    def download(self, book_id):
+        raise DownloadRefused(
+            "Project Gutenberg does not list an EPUB edition for this book",
+            detail=book_id,
+        )
+
+
+def test_search_exposes_a_security_status_per_listing(client):
+    payload = client.post("/api/search", json={"query": "dune"}).json()
+    by_source = {item["source"]: item["security"] for item in payload["results"]}
+    assert by_source["stub"]["status"] == "scan_on_fetch"
+    assert "not a guarantee" in by_source["stub"]["disclaimer"].lower()
+    assert by_source["annas"]["status"] == "link_only"
+    assert by_source["annas"]["headline"]
+
+
+def test_transfer_without_an_epub_is_a_validation_refusal(sample_epub):
+    app = create_app(sources=[NoEpubSource(), ANNAS_ARCHIVE, OCEAN_OF_PDF])
+    with TestClient(app) as client:
+        response = client.post("/api/transfer", json={"source": "noepub", "book_id": "28838"})
+    assert response.status_code == 422
+    assert "EPUB edition" in response.json()["detail"]
 
 
 def test_search_returns_link_only_sources(client):

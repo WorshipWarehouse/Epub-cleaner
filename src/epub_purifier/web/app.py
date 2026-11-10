@@ -473,7 +473,29 @@ def _public_listing(listing: BookListing) -> dict[str, object]:
     payload = listing.to_dict()
     if listing.cover_url and listing.book_id and not listing.is_search_link:
         payload["cover_url"] = f"/api/cover/{listing.source}/{listing.book_id}"
+    payload["security"] = _listing_security(listing)
     return payload
+
+
+def _listing_security(listing: BookListing) -> dict[str, object]:
+    """State up front what a listing's security status actually is."""
+
+    if listing.downloadable:
+        return {
+            "status": "scan_on_fetch",
+            "headline": (
+                "Fetched to this server, scanned and cleaned before the download "
+                "is offered."
+            ),
+            "disclaimer": (
+                "A clean scan is not a guarantee that a file is malware-free."
+            ),
+        }
+    return {
+        "status": "link_only",
+        "headline": "Search link only: no file is fetched or scanned here.",
+        "disclaimer": "",
+    }
 
 
 async def _read_upload(upload: UploadFile, destination: Path, limit: int) -> int:

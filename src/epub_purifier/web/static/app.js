@@ -366,6 +366,17 @@ if (searchForm) {
     if (meta.length) children.push(make("p", { class: "meta", text: meta.join(" · ") }));
     if (listing.download_note) children.push(make("p", { class: "meta", text: listing.download_note }));
 
+    if (listing.security && listing.security.status) {
+      const badgeText =
+        listing.security.status === "scan_on_fetch" ? "scan on fetch" : "search link only";
+      children.push(
+        make("p", { class: "meta security" }, [
+          make("span", { class: `badge ${listing.downloadable ? "good" : "muted"}`, text: badgeText }),
+          ` ${listing.security.headline || ""}`,
+        ]),
+      );
+    }
+
     if (listing.downloadable) {
       const button = make("button", {
         class: "button primary small",

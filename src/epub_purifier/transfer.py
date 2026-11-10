@@ -23,7 +23,7 @@ from .config import PurifierConfig
 from .errors import DrmProtectedError, PurifierError, ValidationError
 from .pipeline import clean_epub, inspect_epub
 from .report import DISCLAIMER, SAFETY_NOTICE
-from .sources.base import BookSource, DownloadResult, SourceError
+from .sources.base import BookSource, DownloadRefused, DownloadResult, SourceError
 from .sources.registry import default_sources
 
 TRANSFER_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_TRANSFER_TTL", "900"))
@@ -127,6 +127,12 @@ class TransferService:
         try:
             downloaded = source.download(book_id)
             self._ingest(job, downloaded)
+        except DownloadRefused as exc:
+            # The source answered but will not provide this book (no EPUB
+            # edition, or no authorisation): a validation refusal, not a
+            # forbidden request.
+            self.discard(job)
+            raise TransferRejected(str(exc)) from exc
         except SourceError as exc:
             self.discard(job)
             raise TransferUnavailable(str(exc)) from exc

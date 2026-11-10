@@ -24,6 +24,13 @@ All notable changes to this project are documented here. The format follows
   selection, transfer rejection paths, temporary-file deletion and the new HTTP
   endpoints.
 
+### Fixed
+
+- Search results now report a per-listing security status (scan-on-fetch versus
+  link-only) instead of omitting the field.
+- A book without an EPUB edition is refused as a validation error (422) rather
+  than reported as a forbidden request (403).
+
 ### Security
 
 - Outbound requests are https-only, host-allowlisted, DNS-checked for public
