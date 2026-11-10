@@ -1,0 +1,95 @@
+"""Web API behaviour (skipped when the optional web extra is absent)."""
+
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from epub_purifier.web.app import create_app  # noqa: E402
+
+
+@pytest.fixture
+def client():
+    app = create_app()
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_index_is_served(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "EPUB Purifier" in response.text
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_health(client):
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_inspect_clean_download(client, sample_epub):
+    response = client.post(
+        "/api/inspect",
+        files={"file": ("book.epub", sample_epub, "application/epub+zip")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    job_id = payload["job_id"]
+    assert payload["report"]["summary"]["counts"]["critical"] >= 1
+    assert payload["file_name"] == "book.epub"
+    assert payload["reviewable"] == [
+        finding for finding in payload["report"]["findings"] if finding["remediation"] == "review"
+    ]
+
+    cleaned = client.post("/api/clean", json={"job_id": job_id, "approve_all": True})
+    assert cleaned.status_code == 200
+    report = cleaned.json()["report"]
+    assert report["output"]["download_url"] == f"/api/download/{job_id}"
+    assert report["summary"]["removed_count"] > 0
+
+    download = client.get(f"/api/download/{job_id}")
+    assert download.status_code == 200
+    assert download.content[:2] == b"PK"
+    assert "attachment" in download.headers["content-disposition"]
+
+
+def test_rejects_non_epub(client):
+    response = client.post(
+        "/api/inspect", files={"file": ("notes.epub", b"not a zip", "application/epub+zip")}
+    )
+    assert response.status_code == 422
+    assert "ZIP" in response.json()["detail"] or "archive" in response.json()["detail"]
+
+
+def test_drm_upload_is_refused(client, drm_epub):
+    response = client.post(
+        "/api/inspect", files={"file": ("drm.epub", drm_epub, "application/epub+zip")}
+    )
+    assert response.status_code == 422
+    assert "DRM" in response.json()["detail"]
+
+
+def test_unknown_job(client):
+    assert client.get("/api/download/0123456789abcdef").status_code == 404
+    response = client.post("/api/clean", json={"job_id": "0123456789abcdef"})
+    assert response.status_code == 404
+
+
+def test_empty_upload(client):
+    response = client.post("/api/inspect", files={"file": ("empty.epub", b"", "application/epub+zip")})
+    assert response.status_code == 400
+
+
+def test_path_traversal_in_filename_is_flattened(client, sample_epub):
+    response = client.post(
+        "/api/inspect",
+        files={"file": ("../../etc/passwd.epub", sample_epub, "application/epub+zip")},
+    )
+    assert response.status_code == 200
+    assert response.json()["file_name"] == "passwd.epub"

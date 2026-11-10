@@ -1,0 +1,119 @@
+# EPUB Purifier configuration
+#
+# Use with:  epub-purifier clean book.epub --config config.toml
+# Unknown keys are rejected so typos surface immediately.
+
+# Regular expressions (case-insensitive) that identify third-party branding.
+# Add your own for other re-packaging sites.
+brand_patterns = [
+  "ocean\\s*[_\\-.]?\\s*of\\s*[_\\-.]?\\s*pdf",
+  "oceanofpdf",
+]
+
+# Hosts that belong to promotional brands; links and assets from these are removed.
+promo_domains = [
+  "oceanofpdf.com",
+  "www.oceanofpdf.com",
+  "oceanofpdf.net",
+  "oceanofpdf.org",
+]
+
+# Analytics, advertising and beacon endpoints. A resource pointing at one of
+# these is treated as tracking even without a brand match.
+tracker_domains = [
+  "google-analytics.com",
+  "googletagmanager.com",
+  "doubleclick.net",
+  "googlesyndication.com",
+  "facebook.com",
+  "connect.facebook.net",
+  "hotjar.com",
+  "mixpanel.com",
+  "segment.io",
+  "amplitude.com",
+  "scorecardresearch.com",
+  "criteo.com",
+  "taboola.com",
+  "outbrain.com",
+]
+
+# Words that raise confidence when they appear next to a brand mention.
+promo_keywords = [
+  "download",
+  "free ebook",
+  "free epub",
+  "more books",
+  "visit us",
+  "follow us",
+  "subscribe",
+  "donate",
+  "support us",
+  "buy the book",
+  "click here",
+  "request a book",
+  "converted by",
+  "scanned by",
+  "provided by",
+]
+
+# class/id/rel hints that mark an element as promotional furniture.
+promo_hints = ["promo", "advert", "banner", "watermark", "brand", "sponsor", "ocean"]
+
+# class/id hints that mark quoted or cited material (never auto-removed).
+citation_hints = [
+  "quote",
+  "cite",
+  "citation",
+  "epigraph",
+  "excerpt",
+  "footnote",
+  "endnote",
+  "reference",
+  "bibliography",
+  "attribution",
+]
+
+# ---------------------------------------------------------------------------
+# Behaviour
+# ---------------------------------------------------------------------------
+
+# Confidence at or above which ambiguous findings are removed without asking.
+auto_remove_confidence = 0.85
+
+# Below this, a brand mention is informational only.
+review_confidence = 0.5
+
+# Also strip remote images, fonts and stylesheets (some legal books use them).
+remove_remote_resources = false
+
+# Keep the words of a promotional link but drop the URL.
+neutralize_promo_links = true
+
+# Remove promotional dc:* elements and meta tags from the package document.
+clean_metadata = true
+
+# Drop documents that exist only to advertise.
+drop_promo_pages = true
+
+# Remove scripts, handlers, iframes, objects and javascript: URLs.
+sanitize_active_content = true
+
+# Drop executables, junk files and unsafe archive members.
+drop_unsafe_files = true
+
+# Refresh dcterms:modified after editing.
+update_modified_timestamp = true
+
+# ---------------------------------------------------------------------------
+# Hard limits for untrusted archives
+# ---------------------------------------------------------------------------
+
+[limits]
+max_upload_bytes = 268435456        # 256 MiB
+max_entries = 5000
+max_total_uncompressed = 1073741824 # 1 GiB
+max_entry_uncompressed = 134217728  # 128 MiB
+max_compression_ratio = 120.0
+max_entry_ratio = 400.0
+max_path_depth = 16
+max_name_length = 255
