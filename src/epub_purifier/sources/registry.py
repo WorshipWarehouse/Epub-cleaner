@@ -13,11 +13,19 @@ from .base import (
     normalize_query,
 )
 from .gutenberg import GutenbergSource
+from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF
+from .wikisource import WikisourceSource
 
 
 def default_sources() -> list[BookSource]:
-    return [GutenbergSource(), ANNAS_ARCHIVE, OCEAN_OF_PDF]
+    return [
+        GutenbergSource(),
+        WikisourceSource(),
+        InternetArchiveSource(),
+        ANNAS_ARCHIVE,
+        OCEAN_OF_PDF,
+    ]
 
 
 def get_source(name: str, sources: Sequence[BookSource] | None = None) -> BookSource | None:

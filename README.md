@@ -123,14 +123,20 @@ job after 30 minutes (`EPUB_PURIFIER_JOB_TTL`), and serves a strict
 
 ## Search and safe downloads
 
-The web UI can search three sources by title, author or ISBN and compare what
+The web UI can search five sources by title, author or ISBN and compare what
 each one offers:
 
 | Source | Search | Downloads |
 |---|---|---|
 | Project Gutenberg | official OPDS catalogue | EPUB (confirmed on fetch), public domain — fetched, scanned and cleaned here |
+| Wikisource | MediaWiki search API | EPUB built on demand by Wikimedia's WS Export; public domain and freely licensed — fetched, scanned and cleaned here |
+| Internet Archive | advanced-search API | EPUB for openly downloadable items, including Gutenberg mirrors; lending copies are refused before any file is requested |
 | Anna's Archive | link to its search page | none: no authorised public API |
 | Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
+
+Standard Ebooks is deliberately absent: its catalogue feed answers `401` without
+an account token, and scraping its HTML pages would trade an official interface
+for a fragile one.
 
 Results show the source, available formats, language and a cover image (proxied
 through this server, so your browser never contacts the source). Only listings

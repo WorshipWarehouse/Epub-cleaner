@@ -23,8 +23,10 @@ from .base import (
     normalize_query,
 )
 from .gutenberg import GutenbergSource
+from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF, LinkOnlySource
 from .registry import default_sources, get_source, search_books
+from .wikisource import WikisourceSource
 
 __all__ = [
     "ANNAS_ARCHIVE",
@@ -33,6 +35,7 @@ __all__ = [
     "DownloadRefused",
     "DownloadResult",
     "GutenbergSource",
+    "InternetArchiveSource",
     "LinkOnlySource",
     "MinInterval",
     "OCEAN_OF_PDF",
@@ -40,6 +43,7 @@ __all__ = [
     "SearchResponse",
     "SourceError",
     "SourceStatus",
+    "WikisourceSource",
     "default_sources",
     "get_source",
     "normalize_query",

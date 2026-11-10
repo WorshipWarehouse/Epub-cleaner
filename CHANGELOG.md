@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 - Unified book search across Project Gutenberg (its official OPDS catalogue),
   Anna's Archive and Ocean of PDF, with per-source availability, formats and
   cover images.
+- Wikisource and Internet Archive adapters with real downloads: Wikisource pages
+  are exported to EPUB by Wikimedia's WS Export, and Internet Archive results are
+  limited to openly downloadable, non-lending items whose metadata is re-checked
+  before any file is requested.
 - Modular source adapters: an authorised EPUB download path for Project
   Gutenberg, and link-only adapters that refuse downloads for the other two.
 - Project Gutenberg search runs against its official OPDS catalogue; the EPUB
@@ -22,7 +26,7 @@ All notable changes to this project are documented here. The format follows
   in-memory cache, so the browser never contacts a source directly.
 - Automated tests for search parsing, rate limiting, URL/SSRF guards, download
   selection, transfer rejection paths, temporary-file deletion and the new HTTP
-  endpoints.
+  endpoints, including the Wikisource export and Internet Archive refusal paths.
 
 ### Fixed
 
