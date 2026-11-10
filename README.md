@@ -126,7 +126,7 @@ each one offers:
 
 | Source | Search | Downloads |
 |---|---|---|
-| Project Gutenberg | Gutendex API | EPUB, public domain — fetched, scanned and cleaned here |
+| Project Gutenberg | official OPDS catalogue | EPUB (confirmed on fetch), public domain — fetched, scanned and cleaned here |
 | Anna's Archive | link to its search page | none: no authorised public API |
 | Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
 

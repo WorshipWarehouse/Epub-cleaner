@@ -336,20 +336,23 @@ if (searchForm) {
 
   function renderListing(listing) {
     const coverPath = safeCover(listing.cover_url);
-    const cover = coverPath
-      ? make("img", {
-          class: "cover",
-          src: coverPath,
-          alt: "",
-          loading: "lazy",
-          width: "72",
-          height: "108",
-        })
-      : make("div", {
-          class: "cover placeholder",
-          "aria-hidden": "true",
-          text: (listing.title || "?").trim().charAt(0).toUpperCase() || "?",
-        });
+    const initial = (listing.title || "?").trim().charAt(0).toUpperCase() || "?";
+    const placeholder = () =>
+      make("div", { class: "cover placeholder", "aria-hidden": "true", text: initial });
+
+    let cover = placeholder();
+    if (coverPath) {
+      const image = make("img", {
+        class: "cover",
+        src: coverPath,
+        alt: "",
+        loading: "lazy",
+        width: "72",
+        height: "108",
+      });
+      image.addEventListener("error", () => image.replaceWith(placeholder()), { once: true });
+      cover = image;
+    }
 
     const meta = [];
     if (listing.authors && listing.authors.length) meta.push(listing.authors.join(", "));

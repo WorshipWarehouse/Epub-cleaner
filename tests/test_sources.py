@@ -1,8 +1,6 @@
-"""Source adapters: parsing, rate limits, downloads, and link-only refusal."""
+"""Source adapters: OPDS parsing, rate limits, downloads, and link-only refusal."""
 
 from __future__ import annotations
-
-import json
 
 import pytest
 
@@ -19,52 +17,82 @@ from epub_purifier.sources.links import ANNAS_ARCHIVE, OCEAN_OF_PDF
 from epub_purifier.sources.net import Fetched, check_url, host_allowed
 from epub_purifier.sources.registry import search_books
 
-PAYLOAD = {
-    "count": 2,
-    "results": [
-        {
-            "id": 1342,
-            "title": "Pride and Prejudice",
-            "authors": [{"name": "Austen, Jane"}],
-            "languages": ["en"],
-            "formats": {
-                "application/epub+zip": "https://www.gutenberg.org/ebooks/1342.epub3.images",
-                "text/html": "https://www.gutenberg.org/ebooks/1342.html.images",
-                "image/jpeg": "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg",
-            },
-        },
-        {
-            "id": 11,
-            "title": "Alice's Adventures in Wonderland",
-            "authors": [{"name": "Carroll, Lewis"}],
-            "languages": ["en"],
-            "formats": {"text/plain": "https://www.gutenberg.org/files/11/11-0.txt"},
-        },
-    ],
-}
+SEARCH_FEED = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Search results</title>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/authors/search.opds/?query=austen</id>
+    <title>Authors</title>
+    <content type="text">10 author names match your search.</content>
+  </entry>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/1342.opds</id>
+    <title>Pride and Prejudice</title>
+    <content type="text">Jane Austen</content>
+    <link type="application/epub+zip" rel="http://opds-spec.org/acquisition"
+          href="https://www.gutenberg.org/ebooks/1342.epub3.images"/>
+    <link type="text/html" rel="alternate" href="https://www.gutenberg.org/ebooks/1342.html.images"/>
+    <link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail"
+          href="https://www.gutenberg.org/cache/epub/1342/pg1342.cover.small.jpg"/>
+  </entry>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/11.opds</id>
+    <title>Alice's Adventures in Wonderland</title>
+    <content type="text">Lewis Carroll</content>
+    <link type="text/html" rel="alternate" href="https://www.gutenberg.org/ebooks/11.html.images"/>
+  </entry>
+</feed>"""
+
+BOOK_FEED = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Pride and Prejudice by Jane Austen</title>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/1342.opds</id>
+    <title>Pride and Prejudice</title>
+    <link type="application/epub+zip" rel="http://opds-spec.org/acquisition"
+          href="https://www.gutenberg.org/ebooks/1342.epub.noimages"/>
+    <link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail"
+          href="https://www.gutenberg.org/cache/epub/1342/pg1342.cover.small.jpg"/>
+  </entry>
+</feed>"""
+
+BOOK_FEED_WITHOUT_EPUB = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/11.opds</id>
+    <title>Alice's Adventures in Wonderland</title>
+    <link type="text/html" rel="alternate" href="https://www.gutenberg.org/ebooks/11.html.images"/>
+  </entry>
+</feed>"""
 
 EPUB_BYTES = b"PK\x03\x04fake-epub-body"
+JPEG_BYTES = b"\xff\xd8\xffeight"
 
 
-def make_fetch(payload=None, blob=EPUB_BYTES, search_type="application/json"):
-    payload = payload or PAYLOAD
+def make_fetch(
+    *,
+    search_feed: str = SEARCH_FEED,
+    book_feed: str = BOOK_FEED,
+    epub: bytes = EPUB_BYTES,
+    cover: bytes | None = JPEG_BYTES,
+    feed_type: str = "application/atom+xml",
+    epub_type: str = "application/epub+zip",
+):
     calls: list[tuple[str, dict]] = []
 
     def fetch(url, **kwargs):
         calls.append((url, kwargs))
-        if url.endswith(".epub3.images"):
-            return Fetched(url=url, content_type="application/epub+zip", data=blob)
+        if "/ebooks/search.opds/" in url:
+            return Fetched(url=url, content_type=feed_type, data=search_feed.encode())
+        if url.rstrip("/").endswith(".opds"):
+            return Fetched(url=url, content_type="application/atom+xml", data=book_feed.encode())
+        if ".epub" in url:
+            return Fetched(url=url, content_type=epub_type, data=epub)
         if url.endswith(".jpg"):
-            return Fetched(url=url, content_type="image/jpeg", data=b"\xff\xd8\xffeight")
-        if url.startswith("https://gutendex.com/books/"):
-            book_id = url.rsplit("/", 1)[-1]
-            entry = next(item for item in payload["results"] if str(item["id"]) == book_id)
-            return Fetched(
-                url=url, content_type="application/json", data=json.dumps(entry).encode()
-            )
-        return Fetched(
-            url=url, content_type=search_type, data=json.dumps(payload).encode()
-        )
+            if cover is None:
+                raise SourceError("The source answered HTTP 404", detail=url)
+            return Fetched(url=url, content_type="image/jpeg", data=cover)
+        raise AssertionError(f"unexpected fetch: {url}")
 
     return fetch, calls
 
@@ -81,7 +109,7 @@ def test_normalize_query():
         normalize_query(42)  # type: ignore[arg-type]
 
 
-def test_search_parses_listings():
+def test_search_parses_opds_books_and_skips_subsections():
     fetch, _calls = make_fetch()
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
 
@@ -90,14 +118,15 @@ def test_search_parses_listings():
     assert [listing.book_id for listing in listings] == ["1342", "11"]
     first, second = listings
     assert first.title == "Pride and Prejudice"
-    assert first.authors == ("Austen, Jane",)
+    assert first.authors == ("Jane Austen",)
     assert first.formats == ("EPUB", "HTML")
     assert first.downloadable is True
     assert first.details_url == "https://www.gutenberg.org/ebooks/1342"
     assert first.cover_url and first.cover_url.endswith(".jpg")
-    assert second.downloadable is False
-    assert "No EPUB edition" in second.download_note
-    assert second.formats == ("Text",)
+    # Only linked formats are listed; the EPUB itself is confirmed on fetch.
+    assert second.formats == ("HTML",)
+    assert second.downloadable is True
+    assert "confirmed when the file is fetched" in second.download_note
 
 
 def test_search_rejects_short_query_without_fetching():
@@ -109,14 +138,22 @@ def test_search_rejects_short_query_without_fetching():
 
 
 def test_search_rejects_unexpected_content_type():
-    fetch, _calls = make_fetch(search_type="text/html")
+    fetch, _calls = make_fetch(feed_type="text/html")
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
     with pytest.raises(SourceError) as excinfo:
-        source.search("dune")
+        source.search("austen")
     assert "content type" in str(excinfo.value)
 
 
-def test_download_picks_epub_edition():
+def test_search_rejects_unreadable_xml():
+    fetch, _calls = make_fetch(search_feed="<feed><entry>")
+    source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
+    with pytest.raises(SourceError) as excinfo:
+        source.search("austen")
+    assert "unreadable XML" in str(excinfo.value)
+
+
+def test_download_uses_the_book_feed_epub_link():
     fetch, calls = make_fetch()
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
 
@@ -124,23 +161,23 @@ def test_download_picks_epub_edition():
 
     assert result.data == EPUB_BYTES
     assert result.file_name == "Pride and Prejudice.epub"
-    assert result.origin_url == "https://www.gutenberg.org/ebooks/1342.epub3.images"
-    assert any(url.endswith(".epub3.images") for url, _ in calls)
+    assert result.origin_url == "https://www.gutenberg.org/ebooks/1342.epub.noimages"
+    assert any(url.endswith("1342.epub.noimages") for url, _ in calls)
 
 
-def test_download_uses_cached_metadata():
+def test_download_uses_cached_book_metadata():
     fetch, calls = make_fetch()
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
 
     source.download("1342")
     source.download("1342")
 
-    metadata_calls = [url for url, _ in calls if url == "https://gutendex.com/books/1342"]
-    assert len(metadata_calls) == 1
+    book_calls = [url for url, _ in calls if url == "https://www.gutenberg.org/ebooks/1342.opds"]
+    assert len(book_calls) == 1
 
 
-def test_download_without_epub_is_refused():
-    fetch, _calls = make_fetch()
+def test_download_without_an_epub_link_is_refused():
+    fetch, _calls = make_fetch(book_feed=BOOK_FEED_WITHOUT_EPUB)
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
     with pytest.raises(DownloadRefused):
         source.download("11")
@@ -154,18 +191,18 @@ def test_download_rejects_invalid_identifier():
     assert calls == []
 
 
-def test_download_rejects_html_page():
+def test_download_maps_missing_book_to_refusal():
     def fetch(url, **kwargs):
-        if url.endswith(".epub3.images"):
-            return Fetched(url=url, content_type="text/html", data=b"<html>nope</html>")
-        if url.startswith("https://gutendex.com/books/"):
-            return Fetched(
-                url=url,
-                content_type="application/json",
-                data=json.dumps(PAYLOAD["results"][0]).encode(),
-            )
-        return Fetched(url=url, content_type="application/json", data=b"{}")
+        raise SourceError("The source answered HTTP 404", detail=url)
 
+    source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
+    with pytest.raises(DownloadRefused) as excinfo:
+        source.download("99999999")
+    assert "no book" in str(excinfo.value)
+
+
+def test_download_rejects_html_page():
+    fetch, _calls = make_fetch(epub_type="text/html")
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
     with pytest.raises(SourceError) as excinfo:
         source.download("1342")
@@ -173,37 +210,47 @@ def test_download_rejects_html_page():
 
 
 def test_download_rejects_non_zip_body():
-    def fetch(url, **kwargs):
-        if url.endswith(".epub3.images"):
-            return Fetched(url=url, content_type="application/octet-stream", data=b"not a zip")
-        if url.startswith("https://gutendex.com/books/"):
-            return Fetched(
-                url=url,
-                content_type="application/json",
-                data=json.dumps(PAYLOAD["results"][0]).encode(),
-            )
-        return Fetched(url=url, content_type="application/json", data=b"{}")
-
+    fetch, _calls = make_fetch(epub=b"not a zip", epub_type="application/octet-stream")
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
     with pytest.raises(SourceError) as excinfo:
         source.download("1342")
     assert "ZIP" in str(excinfo.value)
 
 
-def test_cover_returns_image():
-    fetch, _calls = make_fetch()
+def test_cover_comes_from_the_book_feed():
+    fetch, calls = make_fetch()
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
+
     cover = source.cover("1342")
+
     assert cover is not None
     data, media_type = cover
-    assert data.startswith(b"\xff\xd8\xff")
+    assert data == JPEG_BYTES
     assert media_type == "image/jpeg"
+    assert any(url.endswith("pg1342.cover.small.jpg") for url, _ in calls)
 
 
-def test_cover_is_absent_when_no_image_is_listed():
-    fetch, _calls = make_fetch()
+def test_cover_falls_back_to_the_standard_cache_path():
+    feed = BOOK_FEED.replace(
+        """    <link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail"
+          href="https://www.gutenberg.org/cache/epub/1342/pg1342.cover.small.jpg"/>\n""",
+        "",
+    )
+    fetch, calls = make_fetch(book_feed=feed)
     source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
-    assert source.cover("11") is None
+
+    assert source.cover("1342") is not None
+    assert any(
+        url == "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg"
+        for url, _ in calls
+    )
+
+
+def test_cover_returns_none_when_image_is_missing():
+    fetch, _calls = make_fetch(cover=None)
+    source = GutenbergSource(fetch=fetch, sleep=lambda _seconds: None)
+    with pytest.raises(SourceError):
+        source.cover("1342")
 
 
 def test_min_interval_waits_between_calls():

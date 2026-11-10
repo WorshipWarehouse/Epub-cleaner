@@ -8,10 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Unified book search across Project Gutenberg (Gutendex), Anna's Archive and
-  Ocean of PDF, with per-source availability, formats and cover images.
+- Unified book search across Project Gutenberg (its official OPDS catalogue),
+  Anna's Archive and Ocean of PDF, with per-source availability, formats and
+  cover images.
 - Modular source adapters: an authorised EPUB download path for Project
   Gutenberg, and link-only adapters that refuse downloads for the other two.
+- Project Gutenberg search runs against its official OPDS catalogue; the EPUB
+  edition is confirmed while fetching rather than assumed from the search feed.
 - Isolated transfer pipeline that fetches into a private temporary directory,
   rejects archives that fail validation or contain executable payloads, reuses
   the existing cleaning engine, and serves the cleaned EPUB exactly once.

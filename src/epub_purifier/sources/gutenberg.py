@@ -1,17 +1,21 @@
-"""Project Gutenberg: search through Gutendex, download EPUB editions.
+"""Project Gutenberg: search through its official OPDS catalogue, download EPUBs.
 
-Gutenberg books are public domain in the United States and the site publishes
-EPUB editions for direct download, which is why this is the only source in the
-registry with an automated download path.
+Gutenberg publishes an Atom/OPDS feed for search and one feed per book, which is
+an official machine-readable interface rather than screen scraping. Books are
+public domain in the United States and the site offers direct EPUB downloads,
+which is why this is the only source in the registry with a download path.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import threading
 import time
 import urllib.parse
+from xml.etree.ElementTree import ParseError
+
+from defusedxml import ElementTree as DefusedET
+from defusedxml.common import DefusedXmlException
 
 from .base import (
     BookListing,
@@ -23,15 +27,21 @@ from .base import (
 )
 from .net import fetch_bytes, looks_like_zip
 
-SEARCH_ENDPOINT = "https://gutendex.com/books"
-ALLOWED_HOSTS = ("gutenberg.org", "pglaf.org", "gutendex.com")
+BASE = "https://www.gutenberg.org"
+SEARCH_ENDPOINT = f"{BASE}/ebooks/search.opds/"
+BOOK_ENDPOINT = f"{BASE}/ebooks/{{book_id}}.opds"
+ALLOWED_HOSTS = ("gutenberg.org", "pglaf.org")
 
-MAX_SEARCH_BYTES = 4 * 1024 * 1024
+MAX_FEED_BYTES = 4 * 1024 * 1024
 MAX_EPUB_BYTES = 64 * 1024 * 1024
 MAX_COVER_BYTES = 2 * 1024 * 1024
 
-#: Gutendex asks clients to stay around one request per second per client.
+#: Gutenberg asks clients to stay polite; one request a second per process.
 REQUEST_INTERVAL = 1.0
+
+ATOM = "{http://www.w3.org/2005/Atom}"
+DCTERMS = "{http://purl.org/dc/terms/}"
+OPDS_ACQUISITION = "http://opds-spec.org/acquisition"
 
 FORMAT_LABELS = {
     "application/epub+zip": "EPUB",
@@ -44,8 +54,9 @@ FORMAT_LABELS = {
 
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
-_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9 ._-]+")
 _BOOK_ID = re.compile(r"^[0-9]{1,9}$")
+_BOOK_ENTRY = re.compile(r"/ebooks/([0-9]{1,9})\.opds$")
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9 ._-]+")
 
 
 class GutenbergSource:
@@ -53,8 +64,8 @@ class GutenbergSource:
     label = "Project Gutenberg"
     supports_download = True
     note = (
-        "Public-domain catalogue with direct EPUB downloads. "
-        "Files are fetched to this server, scanned and cleaned before you get them."
+        "Public-domain catalogue with an official OPDS feed and direct EPUB "
+        "downloads. Files are fetched to this server, scanned and cleaned."
     )
 
     def __init__(
@@ -74,25 +85,20 @@ class GutenbergSource:
     # -- search ----------------------------------------------------------
     def search(self, query: str) -> list[BookListing]:
         query = normalize_query(query)
-        url = f"{SEARCH_ENDPOINT}?search={urllib.parse.quote(query)}"
-        payload = self._json(url, max_bytes=MAX_SEARCH_BYTES, what="search")
-        entries = payload.get("results")
-        if not isinstance(entries, list):
-            raise SourceError("Project Gutenberg search response has no results list")
+        url = f"{SEARCH_ENDPOINT}?query={urllib.parse.quote_plus(query)}"
+        root = self._feed(url, what="search")
         listings: list[BookListing] = []
-        for entry in entries[:32]:
-            if isinstance(entry, dict):
-                listing = self._listing(entry)
-                if listing is not None:
-                    listings.append(listing)
-        return listings
+        for entry in root.findall(f"{ATOM}entry"):
+            listing = self._listing(entry)
+            if listing is not None:
+                listings.append(listing)
+        return listings[:32]
 
     # -- download --------------------------------------------------------
     def download(self, book_id: str) -> DownloadResult:
         book_id = self._clean_id(book_id)
-        payload = self._metadata(book_id)
-        formats = payload.get("formats") if isinstance(payload.get("formats"), dict) else {}
-        epub_url = self._epub_url(formats)
+        book = self._book(book_id)
+        epub_url = book.get("epub")
         if not epub_url:
             raise DownloadRefused(
                 "Project Gutenberg does not list an EPUB edition for this book",
@@ -115,21 +121,17 @@ class GutenbergSource:
         if not looks_like_zip(fetched.data):
             raise SourceError("The downloaded file is not a ZIP archive")
 
-        title = str(payload.get("title") or f"gutenberg-{book_id}")
         return DownloadResult(
             data=fetched.data,
-            file_name=_safe_file_name(title, book_id),
+            file_name=_safe_file_name(str(book.get("title") or ""), book_id),
             origin_url=fetched.url,
         )
 
     # -- cover -----------------------------------------------------------
     def cover(self, book_id: str) -> tuple[bytes, str] | None:
         book_id = self._clean_id(book_id)
-        payload = self._metadata(book_id)
-        formats = payload.get("formats") if isinstance(payload.get("formats"), dict) else {}
-        cover_url = formats.get("image/jpeg")
-        if not isinstance(cover_url, str) or not cover_url.startswith("https://"):
-            return None
+        book = self._book(book_id)
+        cover_url = book.get("cover") or f"{BASE}/cache/epub/{book_id}/pg{book_id}.cover.medium.jpg"
         self._limiter.wait()
         fetched = self._fetch(
             cover_url,
@@ -143,50 +145,104 @@ class GutenbergSource:
         return fetched.data, fetched.content_type
 
     # -- internals -------------------------------------------------------
-    def _json(self, url: str, *, max_bytes: int, what: str) -> dict:
+    def _feed(self, url: str, *, what: str):
         self._limiter.wait()
         fetched = self._fetch(
             url,
             allowed_hosts=ALLOWED_HOSTS,
-            timeout=15.0,
-            max_bytes=max_bytes,
-            accept="application/json",
+            timeout=20.0,
+            max_bytes=MAX_FEED_BYTES,
+            accept="application/atom+xml",
         )
-        if fetched.content_type != "application/json":
+        if "xml" not in fetched.content_type:
             raise SourceError(
                 f"Project Gutenberg {what} returned an unexpected content type",
                 detail=fetched.content_type or "unknown",
             )
         try:
-            payload = json.loads(fetched.data.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise SourceError(f"Project Gutenberg {what} returned unreadable JSON") from exc
-        if not isinstance(payload, dict):
-            raise SourceError(f"Project Gutenberg {what} returned an unexpected document")
-        return payload
+            return DefusedET.fromstring(fetched.data)
+        except (DefusedXmlException, ParseError, ValueError) as exc:
+            raise SourceError(f"Project Gutenberg {what} returned unreadable XML") from exc
 
-    def _metadata(self, book_id: str) -> dict:
+    def _book(self, book_id: str) -> dict:
         now = time.monotonic()
         with self._cache_lock:
             cached = self._cache.get(book_id)
             if cached is not None and now - cached[0] < self._cache_ttl:
                 return cached[1]
-        payload = self._json(f"{SEARCH_ENDPOINT}/{book_id}", max_bytes=MAX_SEARCH_BYTES, what="book")
+
+        try:
+            root = self._feed(BOOK_ENDPOINT.format(book_id=book_id), what="book")
+        except SourceError as exc:
+            if "HTTP 404" in str(exc):
+                raise DownloadRefused(
+                    "Project Gutenberg has no book with that identifier", detail=book_id
+                ) from exc
+            raise
+
+        entry = None
+        for candidate in root.findall(f"{ATOM}entry"):
+            if _entry_book_id(candidate) == book_id:
+                entry = candidate
+                break
+        if entry is None:
+            entries = root.findall(f"{ATOM}entry")
+            entry = entries[0] if entries else None
+        if entry is None:
+            raise SourceError("Project Gutenberg returned a book feed with no entries")
+
+        book = {
+            "title": _text(entry, f"{ATOM}title") or f"gutenberg-{book_id}",
+            "epub": _first_link(entry, "application/epub+zip"),
+            "cover": _first_link(entry, "image/jpeg"),
+        }
         with self._cache_lock:
             if len(self._cache) >= 128:
                 oldest = min(self._cache.items(), key=lambda item: item[1][0])[0]
                 self._cache.pop(oldest, None)
-            self._cache[book_id] = (time.monotonic(), payload)
-        return payload
+            self._cache[book_id] = (time.monotonic(), book)
+        return book
 
-    @staticmethod
-    def _epub_url(formats: dict) -> str | None:
-        for media_type, url in formats.items():
-            if not isinstance(url, str) or not url.startswith("https://"):
-                continue
-            if str(media_type).split(";")[0].strip().lower() == "application/epub+zip":
-                return url
-        return None
+    def _listing(self, entry) -> BookListing | None:
+        book_id = _entry_book_id(entry)
+        if book_id is None:
+            return None  # author/subject "subsection" entries in the search feed
+
+        title = _text(entry, f"{ATOM}title") or "Untitled"
+        formats: list[str] = []
+        epub_url = None
+        for link in entry.findall(f"{ATOM}link"):
+            media_type = (link.get("type") or "").split(";")[0].strip().lower()
+            label = FORMAT_LABELS.get(media_type)
+            if label and label not in formats:
+                formats.append(label)
+            if media_type == "application/epub+zip" and epub_url is None:
+                epub_url = _absolute(link.get("href"))
+
+        cover = _first_link(entry, "image/jpeg") or (
+            f"{BASE}/cache/epub/{book_id}/pg{book_id}.cover.medium.jpg"
+        )
+
+        # The search feed only links to each book's own OPDS entry, so format
+        # details usually arrive with the download attempt. Gutenberg's EPUB
+        # coverage is near-universal, and download() refuses when a book has no
+        # EPUB, so advertise EPUB and confirm it when the file is fetched.
+        listed_formats = tuple(formats) or ("EPUB",)
+        note = "" if epub_url is not None else "EPUB availability is confirmed when the file is fetched."
+
+        return BookListing(
+            source=self.name,
+            source_label=self.label,
+            book_id=book_id,
+            title=title[:300],
+            authors=_authors(entry),
+            languages=_languages(entry),
+            formats=listed_formats,
+            details_url=f"{BASE}/ebooks/{book_id}",
+            cover_url=cover,
+            downloadable=True,
+            download_note=note,
+        )
 
     @staticmethod
     def _clean_id(book_id: str) -> str:
@@ -195,42 +251,51 @@ class GutenbergSource:
             raise DownloadRefused("That Project Gutenberg identifier is not valid")
         return candidate
 
-    def _listing(self, entry: dict) -> BookListing | None:
-        try:
-            book_id = str(int(entry.get("id")))
-        except (TypeError, ValueError):
-            return None
-        title = str(entry.get("title") or "Untitled").strip()[:300] or "Untitled"
-        authors = tuple(
-            str(author.get("name")).strip()[:120]
-            for author in entry.get("authors") or []
-            if isinstance(author, dict) and author.get("name")
-        )[:8]
-        languages = tuple(str(code)[:12] for code in entry.get("languages") or [])[:8]
 
-        formats = entry.get("formats") if isinstance(entry.get("formats"), dict) else {}
-        labels: list[str] = []
-        for media_type in formats:
-            label = FORMAT_LABELS.get(str(media_type).split(";")[0].strip().lower())
-            if label and label not in labels:
-                labels.append(label)
-        epub_url = self._epub_url(formats)
-        cover = formats.get("image/jpeg")
-        cover_url = cover if isinstance(cover, str) and cover.startswith("https://") else None
+# -- helpers -------------------------------------------------------------
+def _text(entry, path: str) -> str:  # noqa: ANN001 - Element
+    return (entry.findtext(path) or "").strip()
 
-        return BookListing(
-            source=self.name,
-            source_label=self.label,
-            book_id=book_id,
-            title=title,
-            authors=authors,
-            languages=languages,
-            formats=tuple(labels),
-            details_url=f"https://www.gutenberg.org/ebooks/{book_id}",
-            cover_url=cover_url,
-            downloadable=bool(epub_url),
-            download_note="" if epub_url else "No EPUB edition is listed for this book.",
-        )
+
+def _entry_book_id(entry) -> str | None:  # noqa: ANN001 - Element
+    match = _BOOK_ENTRY.search(_text(entry, f"{ATOM}id"))
+    return match.group(1) if match else None
+
+
+def _absolute(href: str | None) -> str | None:
+    if not href:
+        return None
+    resolved = urllib.parse.urljoin(BASE + "/", href)
+    return resolved if resolved.startswith("https://") else None
+
+
+def _first_link(entry, media_type: str) -> str | None:  # noqa: ANN001 - Element
+    for link in entry.findall(f"{ATOM}link"):
+        if (link.get("type") or "").split(";")[0].strip().lower() == media_type:
+            absolute = _absolute(link.get("href"))
+            if absolute:
+                return absolute
+    return None
+
+
+def _authors(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
+    names = [
+        _text(author, f"{ATOM}name") for author in entry.findall(f"{ATOM}author")
+    ]
+    names = [name for name in names if name]
+    if names:
+        return tuple(names[:8])
+    content = entry.find(f"{ATOM}content")
+    if content is not None and (content.get("type") or "text") == "text":
+        text = (content.text or "").strip()
+        if 0 < len(text) <= 120:
+            return (text,)
+    return ()
+
+
+def _languages(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
+    codes = [(_text(node, ".") or (node.text or "").strip()) for node in entry.findall(f"{DCTERMS}language")]
+    return tuple(code[:12] for code in codes if code)[:8]
 
 
 def _safe_file_name(title: str, book_id: str) -> str:

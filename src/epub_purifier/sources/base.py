@@ -146,8 +146,8 @@ class BookSource(Protocol):
 class MinInterval:
     """Serialize calls to one host to at most one every ``seconds``.
 
-    Sites such as Gutendex ask clients to stay under roughly one request per
-    second; this keeps a single process inside that budget without a scheduler.
+    Catalogue sites ask clients to stay under roughly one request per second;
+    this keeps a single process inside that budget without a scheduler.
     """
 
     def __init__(
