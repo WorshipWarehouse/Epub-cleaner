@@ -43,16 +43,17 @@ function make(tag, props = {}, children = []) {
 
 // -- file selection ------------------------------------------------------
 function chooseFile(file) {
-  if (!file) return;
+  if (!file) return false;
   if (!file.name.toLowerCase().endsWith(".epub")) {
     setStatus("That is not an .epub file. Pick the book you want to inspect.", true);
-    return;
+    return false;
   }
   state.file = file;
   fileName.textContent = `${file.name} · ${formatBytes(file.size)}`;
   fileName.hidden = false;
   inspectBtn.disabled = false;
   setStatus("");
+  return true;
 }
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -105,7 +106,9 @@ window.addEventListener("drop", (event) => {
   dragDepth = 0;
   setDragActive(false);
   const file = event.dataTransfer.files[0];
-  chooseFile(file);
+  // A dropped book goes straight to inspection: one drag from the download
+  // shelf to a finished report.
+  if (chooseFile(file)) inspectBtn.click();
 });
 
 // -- inspect -------------------------------------------------------------

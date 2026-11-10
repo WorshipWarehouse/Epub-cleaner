@@ -22,6 +22,12 @@ htmlcov/
 pytest.xml
 web.xml
 
+# Node / browser test tooling
+node_modules/
+test-results/
+playwright-report/
+tests/ui/.tmp/
+
 # Linters
 .ruff_cache/
 .mypy_cache/

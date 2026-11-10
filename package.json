@@ -24,6 +24,10 @@
   "scripts": {
     "start": "epub-purifier-web",
     "test": "python -m pytest -q",
+    "test:ui": "playwright test",
     "lint": "ruff check src tests proof"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.0"
   }
 }
