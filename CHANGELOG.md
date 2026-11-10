@@ -8,6 +8,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Five-hour temporary storage for fetched books: a cleaned copy and its metadata
+  are deleted five hours after the server starts downloading the book, whether
+  or not it was downloaded. A background worker sweeps every ten minutes, and
+  expiry is enforced on every access too.
+- Persistent transfer metadata (`job.json` and `report.json` next to each
+  cleaned EPUB) so a restarted server rehydrates surviving jobs, deletes expired
+  ones, and discards interrupted downloads. `EPUB_PURIFIER_TRANSFER_DIR` selects
+  the storage root; the Docker image mounts it as a volume.
+- Temporary-storage management: a storage cap, duplicate-request reuse, orphan
+  directory sweeping, and immediate cleanup after failed or oversized downloads.
+- `GET /api/transfers` (remaining time and storage use) and
+  `DELETE /api/transfer/{id}` (manual **Delete now**), with a UI panel that
+  counts down to automatic deletion.
+- `scanning.py`, a dedicated scan gate between downloaded bytes and the download
+  endpoint, with tests for executables, traversal members, DRM, ZIP bombs and
+  non-EPUB bodies.
 - Unified book search across Project Gutenberg (its official OPDS catalogue),
   Anna's Archive and Ocean of PDF, with per-source availability, formats and
   cover images.
@@ -28,8 +44,8 @@ All notable changes to this project are documented here. The format follows
 - Project Gutenberg search runs against its official OPDS catalogue; the EPUB
   edition is confirmed while fetching rather than assumed from the search feed.
 - Isolated transfer pipeline that fetches into a private temporary directory,
-  rejects archives that fail validation or contain executable payloads, reuses
-  the existing cleaning engine, and serves the cleaned EPUB exactly once.
+  rejects archives that fail validation or contain executable payloads, and
+  reuses the existing cleaning engine before serving the rebuilt EPUB.
 - Cover images proxied through the server with an allowlist, size caps and an
   in-memory cache, so the browser never contacts a source directly.
 - Automated tests for search parsing, rate limiting, URL/SSRF guards, download
@@ -58,7 +74,11 @@ All notable changes to this project are documented here. The format follows
 
 - Outbound requests are https-only, host-allowlisted, DNS-checked for public
   addresses, redirect-checked per hop and size-capped during the read.
-- No endpoint serves an unscanned or raw downloaded file.
+- No endpoint serves an unscanned or raw downloaded file; nested archives,
+  symlinks, traversal members and executables reject the whole download rather
+  than being cleaned around.
+- Temporary files are `0600` inside a `0700` root, written atomically, and never
+  expose the source's original bytes.
 
 ## [0.1.0] — 2026-11-10
 

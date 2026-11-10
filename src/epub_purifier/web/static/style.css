@@ -357,6 +357,33 @@ body.file-dragging .dropzone { border-color: var(--accent); background: var(--bg
 
 .button.small { padding: .4rem .8rem; font-size: .88rem; }
 
+.library-list {
+  list-style: none;
+  display: grid;
+  gap: .6rem;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.library-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-soft);
+  padding: .7rem .9rem;
+}
+
+.library-body { min-width: 0; }
+.library-body .result-title { overflow-wrap: anywhere; }
+.library-body .meta { margin: .2rem 0 0; }
+.library-item .result-actions { margin-top: 0; display: flex; gap: .5rem; flex-wrap: wrap; }
+
+.countdown { font-variant-numeric: tabular-nums; }
+
 .transfer {
   margin-top: 1.1rem;
   border: 1px solid var(--accent);

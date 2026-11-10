@@ -488,6 +488,20 @@ if (searchForm) {
       text: "Download cleaned EPUB",
     });
 
+    const countdown = make("span", {
+      class: "countdown",
+      dataset: { expires: String(payload.expires_at_epoch || "") },
+      text: payload.expires_in ? `deletes in ${payload.expires_in}` : "",
+    });
+    const deleteButton = make("button", {
+      class: "button ghost small",
+      type: "button",
+      text: "Delete now",
+    });
+    deleteButton.addEventListener("click", () =>
+      deleteTransfer(payload.transfer_id, deleteButton, transferPanel),
+    );
+
     transferBody.replaceChildren(
       make("p", { class: "verdict", text: security.headline || "Cleaned and verified." }),
       list,
@@ -495,12 +509,18 @@ if (searchForm) {
         class: "meta",
         text: `Removed ${summary.removed_count || 0} item(s); ${security.needs_review || 0} ambiguous item(s) left in place.`,
       }),
-      make("p", { class: "download-line" }, [download]),
+      make("p", { class: "download-line" }, [download, " ", deleteButton]),
+      make("p", { class: "meta" }, [
+        "Temporary copy in private storage · ",
+        countdown,
+        " · it is deleted whether or not you download it.",
+      ]),
       make("p", { class: "meta", text: security.disclaimer || "" }),
       make("p", { class: "meta", text: security.safety_notice || "" }),
     );
     transferPanel.hidden = false;
     transferPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    refreshLibrary();
   }
 
   searchForm.addEventListener("submit", async (event) => {
@@ -538,6 +558,134 @@ if (searchForm) {
       state.busy = false;
     }
   });
+}
+
+// -- temporary downloads -------------------------------------------------
+// Cleaned copies live on the server for five hours. This panel shows what is
+// stored right now, how long each copy has left, and lets the user delete one
+// immediately. Every value is still rendered as text, never as markup.
+const libraryPanel = $("library-panel");
+const libraryList = $("library-list");
+const libraryStorage = $("library-storage");
+const libraryNotice = $("library-notice");
+
+function formatRemaining(seconds) {
+  const value = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const rest = value % 60;
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+  return `${rest}s`;
+}
+
+function safeTransferUrl(value) {
+  return typeof value === "string" && /^\/api\/transfer\/[0-9a-f]{32}\/download$/.test(value)
+    ? value
+    : null;
+}
+
+async function deleteTransfer(transferId, button, panel) {
+  if (!/^[0-9a-f]{32}$/.test(String(transferId || ""))) return;
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`/api/transfer/${transferId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || "That file could not be deleted.");
+    if (panel) panel.hidden = true;
+    if (libraryNotice) {
+      libraryNotice.textContent = "Temporary copy deleted.";
+      libraryNotice.classList.remove("error");
+    }
+    await refreshLibrary();
+  } catch (error) {
+    if (libraryNotice) {
+      libraryNotice.textContent = error.message;
+      libraryNotice.classList.add("error");
+    }
+    if (button) button.disabled = false;
+  }
+}
+
+function renderLibrary(payload) {
+  if (!libraryPanel) return;
+  const transfers = payload.transfers || [];
+  const storage = payload.storage || {};
+
+  libraryList.replaceChildren();
+  for (const item of transfers) {
+    const href = safeTransferUrl(item.download_url);
+    const countdown = make("span", {
+      class: "countdown",
+      dataset: { expires: String(item.expires_at_epoch || "") },
+      text: item.expires_in ? `deletes in ${item.expires_in}` : "",
+    });
+    const actions = [];
+    if (href) {
+      actions.push(
+        make("a", {
+          class: "button primary small",
+          href,
+          download: item.file_name || "cleaned.epub",
+          text: "Download",
+        }),
+      );
+    }
+    const remove = make("button", {
+      class: "button ghost small",
+      type: "button",
+      text: "Delete now",
+    });
+    remove.addEventListener("click", () => deleteTransfer(item.transfer_id, remove, null));
+    actions.push(remove);
+
+    libraryList.append(
+      make("li", { class: "library-item" }, [
+        make("div", { class: "library-body" }, [
+          make("p", { class: "result-title", text: item.file_name || "cleaned.epub" }),
+          make("p", { class: "meta" }, [
+            `${item.source} · ${formatBytes(item.size_bytes || 0)} · `,
+            countdown,
+          ]),
+        ]),
+        make("div", { class: "result-actions" }, actions),
+      ]),
+    );
+  }
+
+  const used = formatBytes(storage.used_bytes || 0);
+  const max = formatBytes(storage.max_bytes || 0);
+  libraryStorage.textContent = transfers.length
+    ? `${used} of ${max} temporary storage in use · ${transfers.length} cleaned copy(s) · auto-delete ${formatRemaining(storage.ttl_seconds || 18000)} after download starts`
+    : `No temporary copies are stored. ${max} of temporary storage available.`;
+  libraryPanel.hidden = transfers.length === 0;
+}
+
+async function refreshLibrary() {
+  if (!libraryPanel) return;
+  try {
+    const response = await fetch("/api/transfers");
+    if (!response.ok) return;
+    renderLibrary(await response.json());
+  } catch (error) {
+    // The panel is an enhancement; a failed refresh must not break the page.
+  }
+}
+
+function tickCountdowns() {
+  const now = Date.now() / 1000;
+  for (const node of document.querySelectorAll("[data-expires]")) {
+    const expires = Number(node.dataset.expires);
+    if (!Number.isFinite(expires) || expires <= 0) continue;
+    const remaining = Math.max(0, expires - now);
+    node.textContent = remaining <= 0 ? "deleting now…" : `deletes in ${formatRemaining(remaining)}`;
+  }
+}
+
+if (libraryPanel) {
+  refreshLibrary();
+  setInterval(tickCountdowns, 1000);
+  setInterval(refreshLibrary, 30000);
 }
 
 function formatBytes(bytes) {

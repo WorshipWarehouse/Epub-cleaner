@@ -73,6 +73,12 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[web]"      # drop [web] for the CLI only
 ```
 
+## Deploy
+
+See [DEPLOY.md](DEPLOY.md) for the Docker + Caddy and systemd paths, the real
+runtime environment variables, and why the Hostinger managed Node.js web-app
+builder cannot run this Python application.
+
 ## Quick start
 
 ```bash
@@ -167,29 +173,58 @@ curl -s http://127.0.0.1:8000/api/search -H 'content-type: application/json' \
   -d '{"query": "pride and prejudice"}'
 curl -s http://127.0.0.1:8000/api/transfer -H 'content-type: application/json' \
   -d '{"source": "gutenberg", "book_id": "1342"}'
+
+# what is stored right now, with its remaining lifetime and storage use
+curl -s http://127.0.0.1:8000/api/transfers
+# remove one temporary copy immediately
+curl -s -X DELETE http://127.0.0.1:8000/api/transfer/<transfer_id>
 ```
 
-- Files that fail archive validation (ZIP bombs, traversal members, DRM) or that
-  contain executable payloads are rejected, and no cleaned copy is produced.
-- Only the rebuilt, structurally verified EPUB is served, once. The raw download
-  is deleted as soon as cleaning succeeds, the cleaned copy is deleted when it is
-  downloaded (or after `EPUB_PURIFIER_TRANSFER_TTL` seconds), and the temporary
-  root is removed on shutdown.
+- Files that fail archive validation (ZIP bombs, traversal members, DRM,
+symlinks, nested archives) or that contain executable payloads are rejected,
+and no cleaned copy is produced.
+- Only the rebuilt, structurally verified EPUB is served. The raw download is
+deleted as soon as cleaning succeeds, so an unscanned file never survives the
+scan.
 - Ambiguous removals are **not** auto-approved on this path: they remain `review`
   items in the report, so an automated transfer never deletes a possible
   citation.
 - A scan pass is not a safety guarantee; the transfer response repeats the same
   disclaimer as the CLI report.
 
+### Temporary storage and automatic deletion
+
+Fetched books are transient by design:
+
+- A cleaned copy is deleted **five hours after the server began downloading
+  it**, whether or not anyone downloaded it. The countdown is per job, shown in
+  the UI and returned as `remaining_seconds` / `expires_at`.
+- A background worker sweeps every **10 minutes**; expiry is also checked on
+  every job lookup, so an expired file is never served even between sweeps.
+- `DELETE /api/transfer/{id}` (the UI's **Delete now** button) removes the
+  cleaned copy, its report and metadata immediately.
+- Metadata (`job.json`) and reports are written alongside each job under a
+  `0700` root with `0600` files. With `EPUB_PURIFIER_TRANSFER_DIR` pointing at
+  persistent storage (the Docker image does), a restarted server rehydrates the
+  surviving jobs and deletes the ones whose five hours already elapsed. An
+  interrupted download is treated as abandoned and removed rather than resumed.
+- Storage use is capped (`EPUB_PURIFIER_MAX_STORAGE_MB`), failed or oversized
+  downloads leave nothing behind, and asking for a book already being prepared
+  reuses that job instead of downloading it twice.
+- The download endpoint is repeatable until expiry: a dropped connection or a
+  second device does not consume the cleaned copy.
+
 Outbound fetching is restricted to https, a per-source host allowlist and
 globally routable addresses; redirects are re-checked hop by hop, and bodies are
 size-capped while they are read. A source that does not authorise automated
 downloads is never fetched from, even if asked.
 
-Environment knobs: `EPUB_PURIFIER_TRANSFER_TTL` (seconds, default 900),
-`EPUB_PURIFIER_MAX_TRANSFERS` (default 16), `EPUB_PURIFIER_MAX_DOWNLOAD_MB`
-(default 64), `EPUB_PURIFIER_SEARCH_RATE_LIMIT` and
-`EPUB_PURIFIER_TRANSFER_RATE_LIMIT` (requests per minute per client).
+Environment knobs: `EPUB_PURIFIER_TRANSFER_TTL` (seconds, default 18000 = five
+hours), `EPUB_PURIFIER_CLEANUP_INTERVAL` (seconds, default 600),
+`EPUB_PURIFIER_TRANSFER_DIR` (persistent storage path), `EPUB_PURIFIER_MAX_TRANSFERS`
+(default 16), `EPUB_PURIFIER_MAX_DOWNLOAD_MB` (default 64),
+`EPUB_PURIFIER_MAX_STORAGE_MB` (default 1024), `EPUB_PURIFIER_SEARCH_RATE_LIMIT`
+and `EPUB_PURIFIER_TRANSFER_RATE_LIMIT` (requests per minute per client).
 
 ## How it works
 
@@ -473,6 +508,8 @@ src/epub_purifier/
 ├── detectors/        # branding, security, resources, styles, metadata
 ├── report.py         # report model, text + JSON rendering
 ├── pipeline.py       # inspect_epub / clean_epub facade
+├── scanning.py       # scan gate for downloaded bytes, then clean
+├── transfer.py       # isolated storage, 5-hour expiry, cleanup worker
 ├── cli.py            # argparse CLI
 └── web/              # FastAPI app + static UI
 ```

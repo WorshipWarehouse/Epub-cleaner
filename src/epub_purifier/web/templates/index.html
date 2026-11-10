@@ -20,7 +20,7 @@
       <ul class="facts">
         <li>Runs locally</li>
         <li>No uploads to third parties</li>
-        <li>Downloads deleted after cleaning</li>
+        <li>Temporary copies self-delete after 5 hours</li>
       </ul>
     </div>
   </header>
@@ -45,11 +45,24 @@
       <p class="muted">
         Project Gutenberg, Wikisource, Internet Archive, Open Library and Standard Ebooks
         editions are public domain or openly licensed: the EPUB is fetched to this server,
-        scanned and cleaned before you download it. Anna's Archive and Ocean of PDF are search links only — EPUB Purifier
-        never downloads from them, because neither can show that a file is distributed with
-        the publisher's authorisation. If you already have such a file and the right to
+        scanned and cleaned before you download it, and the temporary copy is deleted five hours
+        after the download starts. Anna's Archive and Ocean of PDF are search links only — EPUB
+        Purifier never downloads from them, because neither can show that a file is distributed
+        with the publisher's authorisation. If you already have such a file and the right to
         modify it, clean it with step 2 below: the same scanning and cleaning applies.
       </p>
+    </section>
+
+    <section id="library-panel" class="panel" aria-labelledby="library-heading" hidden>
+      <h2 id="library-heading">Temporary cleaned downloads</h2>
+      <p class="muted">
+        Fetched books are scanned, cleaned and held in private temporary storage for five hours
+        after the server starts downloading them — downloaded or not. A cleanup pass runs every
+        ten minutes, and expired copies are removed even after a restart.
+      </p>
+      <p id="library-storage" class="meta"></p>
+      <ul id="library-list" class="library-list"></ul>
+      <p id="library-notice" class="status" role="status" aria-live="polite"></p>
     </section>
 
     <section class="panel" aria-labelledby="upload-heading">
