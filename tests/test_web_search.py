@@ -132,11 +132,14 @@ def test_search_returns_link_only_sources(client):
     assert all(item["details_url"].startswith("https://") for item in links)
 
 
-def test_transfer_then_single_use_download(client):
+def test_transfer_stays_available_until_deleted(client):
     response = client.post("/api/transfer", json={"source": "stub", "book_id": "42"})
     assert response.status_code == 200
     payload = response.json()
     assert payload["download_url"] == f"/api/transfer/{payload['transfer_id']}/download"
+    assert payload["delete_url"] == f"/api/transfer/{payload['transfer_id']}"
+    assert payload["remaining_seconds"] == 5 * 60 * 60
+    assert payload["expires_in"] == "5h 00m"
     security = payload["security"]
     assert security["status"] == "cleaned_and_verified"
     assert "not a guarantee" in security["disclaimer"].lower()
@@ -147,8 +150,25 @@ def test_transfer_then_single_use_download(client):
     assert download.content[:2] == b"PK"
     assert "attachment" in download.headers["content-disposition"]
 
+    # The file is not consumed by a download: it lives until its five-hour
+    # expiry, a sweep, or an explicit delete.
     again = client.get(payload["download_url"])
-    assert again.status_code == 404
+    assert again.status_code == 200
+
+    listing = client.get("/api/transfers")
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["storage"]["jobs"] == 1
+    assert body["storage"]["used_bytes"] > 0
+    assert body["transfers"][0]["transfer_id"] == payload["transfer_id"]
+    assert "five hours" in body["notice"].lower()
+
+    deleted = client.delete(payload["delete_url"])
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert deleted.json()["storage"]["used_bytes"] == 0
+    assert client.get(payload["download_url"]).status_code == 404
+    assert client.delete(payload["delete_url"]).status_code == 404
 
 
 def test_transfer_refuses_link_only_source(client):
@@ -170,6 +190,8 @@ def test_transfer_rejects_malicious_book(malicious_epub):
 
 def test_download_unknown_transfer(client):
     assert client.get("/api/transfer/abcdef0123456789/download").status_code == 404
+    assert client.delete("/api/transfer/abcdef0123456789").status_code == 404
+    assert client.delete("/api/transfer/not-a-job").status_code == 404
 
 
 def test_cover_is_proxied(client):

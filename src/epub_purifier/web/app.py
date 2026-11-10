@@ -7,7 +7,9 @@ GET  /api/health           liveness probe
 GET  /api/sources          source capabilities (download vs link-only)
 POST /api/search           search the public-domain sources and link-only sources
 POST /api/transfer         fetch, scan, clean and hold one cleaned copy
-GET  /api/transfer/{id}/download   download the cleaned EPUB (single use)
+GET  /api/transfer/{id}/download   download the cleaned copy until it expires
+GET  /api/transfers        temporary store: remaining time and storage use
+DELETE /api/transfer/{id}  delete one temporary copy now
 GET  /api/cover/{src}/{id} proxied cover image
 POST /api/inspect          upload an EPUB, get a report
 POST /api/clean            clean an inspected job (approved ids optional)
@@ -28,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -58,6 +60,13 @@ SEARCH_NOTICE = (
     "server, scanned and cleaned "
     "before it is offered. Anna's Archive and Ocean of PDF are represented by search "
     "links only; EPUB Purifier never downloads from them."
+)
+
+TRANSFER_NOTICE = (
+    "Fetched books are held in private temporary storage only until they finish "
+    "scanning and cleaning. Every cleaned copy and its metadata are deleted five "
+    "hours after the server began downloading it, whether or not it was downloaded, "
+    "and a cleanup pass runs every ten minutes. Delete now removes a copy immediately."
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -189,6 +198,7 @@ def create_app(
             "version": "0.1.0",
             "jobs": store.count(),
             "transfers": transfers.count(),
+            "storage": transfers.storage_info(),
         }
 
     @app.get("/api/sources")
@@ -236,18 +246,46 @@ def create_app(
         return JSONResponse(transfers.describe(job))
 
     @app.get("/api/transfer/{job_id}/download")
-    async def transfer_download(job_id: str, background: BackgroundTasks) -> FileResponse:
+    async def transfer_download(job_id: str) -> FileResponse:
         job = transfers.get(job_id)
         if job is None or job.output is None or not job.output.exists():
             raise HTTPException(
                 status_code=404, detail="No cleaned file is available for that transfer."
             )
-        background.add_task(transfers.discard, job)
+        # The file is not consumed here: it stays available until the five-hour
+        # expiry, so a failed download or a second device does not lose it. The
+        # cleanup worker, the expiry check on access, and Delete now are what
+        # remove it.
         return FileResponse(
             job.output,
             media_type="application/epub+zip",
             filename=job.display_name,
             headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/transfers")
+    async def transfers_endpoint() -> JSONResponse:
+        return JSONResponse(
+            {
+                "transfers": transfers.describe_all(),
+                "storage": transfers.storage_info(),
+                "notice": TRANSFER_NOTICE,
+            }
+        )
+
+    @app.delete("/api/transfer/{job_id}")
+    async def transfer_delete(job_id: str) -> JSONResponse:
+        if not transfers.delete(job_id):
+            raise HTTPException(
+                status_code=404,
+                detail="No temporary copy is stored for that transfer.",
+            )
+        return JSONResponse(
+            {
+                "deleted": True,
+                "transfer_id": job_id,
+                "storage": transfers.storage_info(),
+            }
         )
 
     @app.get("/api/cover/{source_name}/{book_id}")
@@ -361,9 +399,19 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
 
+    @app.on_event("startup")
+    def _startup() -> None:
+        # Rehydrated jobs have already been checked; sweep once so a restart
+        # that happened after an expiry boundary removes those files at once,
+        # then let the worker continue every ten minutes.
+        transfers.sweep()
+        transfers.start_cleanup()
+
     @app.on_event("shutdown")
     def _cleanup() -> None:
         store.close()
+        # Temporary downloads are kept within their five-hour window so a
+        # restart can still expire and delete them; nothing survives it longer.
         transfers.close()
 
     return app
