@@ -15,6 +15,7 @@ from .base import (
 from .gutenberg import GutenbergSource
 from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF
+from .openlibrary import OpenLibrarySource
 from .wikisource import WikisourceSource
 
 
@@ -23,6 +24,7 @@ def default_sources() -> list[BookSource]:
         GutenbergSource(),
         WikisourceSource(),
         InternetArchiveSource(),
+        OpenLibrarySource(),
         ANNAS_ARCHIVE,
         OCEAN_OF_PDF,
     ]

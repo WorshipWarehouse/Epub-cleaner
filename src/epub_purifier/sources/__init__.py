@@ -25,6 +25,7 @@ from .base import (
 from .gutenberg import GutenbergSource
 from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF, LinkOnlySource
+from .openlibrary import OpenLibrarySource
 from .registry import default_sources, get_source, search_books
 from .wikisource import WikisourceSource
 
@@ -39,6 +40,7 @@ __all__ = [
     "LinkOnlySource",
     "MinInterval",
     "OCEAN_OF_PDF",
+    "OpenLibrarySource",
     "SearchQueryError",
     "SearchResponse",
     "SourceError",

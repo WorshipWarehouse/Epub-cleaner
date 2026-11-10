@@ -15,8 +15,12 @@ All notable changes to this project are documented here. The format follows
   are exported to EPUB by Wikimedia's WS Export, and Internet Archive results are
   limited to openly downloadable, non-lending items whose metadata is re-checked
   before any file is requested.
+- Open Library adapter: its official search API is filtered to works marked
+  `ebook_access=public`, and the EPUB is downloaded from Internet Archive only
+  after the item metadata is re-checked, so lending copies are refused.
 - Modular source adapters: an authorised EPUB download path for Project
-  Gutenberg, and link-only adapters that refuse downloads for the other two.
+  Gutenberg, and link-only adapters that refuse downloads for the two sites
+  without distribution rights to prove.
 - Project Gutenberg search runs against its official OPDS catalogue; the EPUB
   edition is confirmed while fetching rather than assumed from the search feed.
 - Isolated transfer pipeline that fetches into a private temporary directory,
