@@ -67,9 +67,10 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -e ".[dev,web]"
       - name: Test
-        # -v prints each test id so end-to-end coverage is visible in the log,
-        # not just the aggregate count.
-        run: .venv/bin/python -m pytest -v --junitxml=pytest.xml
+        # pyproject sets -q, so -v alone nets out to quiet. -vv prints each test
+        # id, making end-to-end coverage visible in the log rather than only the
+        # aggregate count.
+        run: .venv/bin/python -m pytest -vv --junitxml=pytest.xml
       - name: No test may be skipped
         run: |
           .venv/bin/python - <<'PY'
