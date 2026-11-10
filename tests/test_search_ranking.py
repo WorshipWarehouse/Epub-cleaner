@@ -97,11 +97,13 @@ def test_unrelated_results_are_dropped():
         [
             listing("Dune", book_id="dune"),
             listing("The Girl on the Train", ("Paula Hawkins",), book_id="girl"),
+            listing("Pride and Prejudice", ("Jane Austen",), book_id="pp"),
             listing("Dune Messiah", book_id="messiah"),
         ]
     )
 
     assert "The Girl on the Train" not in titles
+    assert "Pride and Prejudice" not in titles
     assert titles == ["Dune", "Dune Messiah"]
 
 

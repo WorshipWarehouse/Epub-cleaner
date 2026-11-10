@@ -79,6 +79,9 @@ All notable changes to this project are documented here. The format follows
   titles outrank sequels and similar titles, title/author searches require both
   fields to match, duplicate listings are removed, and different ISBNs remain
   separate editions rather than being merged.
+- Short accidental token overlaps (for example `dune` against `jane`) no longer
+  qualify as author/title matches, so a search cannot pull in a book merely
+  because two short words share a few characters.
 - A book without an EPUB edition is refused as a validation error (422) rather
   than reported as a forbidden request (403).
 

@@ -446,7 +446,10 @@ def _best_similarity(token: str, field: tuple[str, ...]) -> float:
         if len(token) <= 3 or len(candidate) <= 3:
             continue
         ratio = SequenceMatcher(None, token, candidate).ratio()
-        best = max(best, ratio)
+        # A short accidental character overlap ("dune" / "jane") must not
+        # satisfy title/author coverage. Only genuine spelling variants pass.
+        if ratio >= 0.78:
+            best = max(best, ratio)
     return best
 
 
