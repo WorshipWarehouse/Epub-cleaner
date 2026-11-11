@@ -27,6 +27,14 @@ All notable changes to this project are documented here. The format follows
 - Unified book search across Project Gutenberg (its official OPDS catalogue),
   Anna's Archive and Ocean of PDF, with per-source availability, formats and
   cover images.
+- Relevance-ranked search with strict matching: exact titles first, then
+  title/author combinations, ISBN matches, close title variations and bounded
+  fuzzy matches. ISBN metadata is read from Gutenberg, Open Library, Internet
+  Archive and Standard Ebooks; unsupported or invalid ISBNs return no books.
+- Search filters for title, author, ISBN, language and file format, plus
+  cross-source grouping that shows one book with its matching source listings.
+  Link-only sites are attached as unverified search links, never as confirmed
+  holdings.
 - Wikisource and Internet Archive adapters with real downloads: Wikisource pages
   are exported to EPUB by Wikimedia's WS Export, and Internet Archive results are
   limited to openly downloadable, non-lending items whose metadata is re-checked
@@ -67,6 +75,13 @@ All notable changes to this project are documented here. The format follows
   surviving as an empty document at the end of the book.
 - Search results now report a per-listing security status (scan-on-fetch versus
   link-only) instead of omitting the field.
+- Search no longer fills the result list with unrelated keyword matches. Exact
+  titles outrank sequels and similar titles, title/author searches require both
+  fields to match, duplicate listings are removed, and different ISBNs remain
+  separate editions rather than being merged.
+- Short accidental token overlaps (for example `dune` against `jane`) no longer
+  qualify as author/title matches, so a search cannot pull in a book merely
+  because two short words share a few characters.
 - A book without an EPUB edition is refused as a validation error (422) rather
   than reported as a forbidden request (403).
 

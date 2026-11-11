@@ -29,11 +29,51 @@
     <section class="panel" aria-labelledby="search-heading">
       <h2 id="search-heading"><span class="step">1</span> Find a book</h2>
       <form id="search-form" class="search-form" role="search">
-        <label class="visually-hidden" for="search-input">Search by title, author or ISBN</label>
-        <input id="search-input" class="search-input" type="search" name="q"
-               placeholder="Title, author or ISBN" autocomplete="off"
-               minlength="2" maxlength="200" required>
-        <button class="button primary" type="submit">Search</button>
+        <div class="search-row">
+          <label class="visually-hidden" for="search-input">Search by title, author or ISBN</label>
+          <input id="search-input" class="search-input" type="search" name="q"
+                 placeholder="Title, author or ISBN" autocomplete="off"
+                 minlength="2" maxlength="200" required>
+          <button class="button primary" type="submit">Search</button>
+        </div>
+        <details class="search-filters">
+          <summary>Refine by title, author, ISBN, language or format</summary>
+          <div class="filter-grid">
+            <label class="filter-field">Title
+              <input id="filter-title" type="text" maxlength="200" placeholder="Exact or close title">
+            </label>
+            <label class="filter-field">Author
+              <input id="filter-author" type="text" maxlength="200" placeholder="Author name">
+            </label>
+            <label class="filter-field">ISBN
+              <input id="filter-isbn" type="text" maxlength="32" inputmode="numeric" placeholder="ISBN-10 or ISBN-13">
+            </label>
+            <label class="filter-field">Language
+              <select id="filter-language">
+                <option value="">Any language</option>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="es">Spanish</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="ru">Russian</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+              </select>
+            </label>
+            <label class="filter-field">Format
+              <select id="filter-format">
+                <option value="">Any format</option>
+                <option value="EPUB">EPUB</option>
+                <option value="HTML">HTML</option>
+                <option value="PDF">PDF</option>
+                <option value="TEXT">Text</option>
+                <option value="MOBI">MOBI</option>
+              </select>
+            </label>
+          </div>
+        </details>
       </form>
       <p id="search-status" class="status" role="status" aria-live="polite"></p>
       <div id="source-list" class="source-list"></div>

@@ -29,6 +29,7 @@ from .base import (
     DownloadResult,
     MinInterval,
     SourceError,
+    isbn_candidates,
     normalize_query,
 )
 from .net import fetch_bytes, host_allowed, looks_like_zip
@@ -105,6 +106,7 @@ class StandardEbooksSource:
                     authors=_names(entry.findall(f"{{{ATOM}}}author")),
                     languages=_texts(entry.findall(f"{{{DC}}}language")),
                     formats=("EPUB",),
+                    isbn=_isbns(entry),
                     details_url=_details_url(entry, segments),
                     cover_url=_cover_url(entry),
                     downloadable=True,
@@ -201,6 +203,16 @@ def _names(authors: list) -> tuple[str, ...]:
         if name:
             names.append(name[:120])
     return tuple(names)[:8]
+
+
+def _isbns(entry) -> tuple[str, ...]:  # noqa: ANN001 - Element
+    values: list[str] = []
+    for tag in ("identifier", "isbn"):
+        for node in entry.findall(f"{{{DC}}}{tag}"):
+            candidate, _ = isbn_candidates(_text(node))
+            if candidate and candidate not in values:
+                values.append(candidate)
+    return tuple(values)
 
 
 def _trusted(url: str) -> bool:
