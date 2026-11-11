@@ -88,6 +88,37 @@ def test_epub2_content_gets_an_xhtml_11_doctype():
     assert verify_epub(result.data) == []
 
 
+def test_epub2_unchanged_chapter_preserves_named_entities():
+    """Standard XHTML named entities survive rebuilding unchanged EPUB 2 content."""
+
+    chapter = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+        '"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
+        f'<html xmlns="{XHTML}"><head><title>One</title></head>'
+        "<body><p>Caf&eacute; &amp; bread&nbsp;and tea.</p></body></html>"
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
+        ]
+    )
+
+    result = clean_epub(data)
+    assert result.data is not None
+    output = _content(result.data)
+    assert b"Caf\xc3\xa9 &amp; bread\xc2\xa0and tea." in output
+    assert verify_epub(result.data) == []
+
+
 def test_epub2_extension_selected_chapter_is_rebuilt():
     """An extension-selected EPUB 2 chapter is rebuilt without a content edit."""
 

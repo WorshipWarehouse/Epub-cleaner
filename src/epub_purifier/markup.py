@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator
+from html.entities import html5
 
 from bs4 import BeautifulSoup
 from bs4.element import Comment, Doctype, NavigableString, Tag
@@ -60,6 +61,12 @@ _ENTITY_DECL = re.compile(r"<!ENTITY\b", re.IGNORECASE)
 _DOCTYPE = re.compile(r"<!DOCTYPE\b[^>]*(?:\[[^\]]*\]|SYSTEM|PUBLIC)", re.IGNORECASE | re.DOTALL)
 _DOCTYPE_FULL = re.compile(r"<!DOCTYPE\b(?:[^>\[]|\[[^\]]*\])*>", re.IGNORECASE | re.DOTALL)
 _XML_DECL = re.compile(r"^\s*<\?xml[ \t\r\n][^>]*\?>", re.IGNORECASE)
+_NAMED_ENTITY = re.compile(r"&([A-Za-z][A-Za-z0-9]+);")
+_PROTECTED_MARKUP = re.compile(
+    r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>",
+    re.DOTALL,
+)
+_PREDEFINED_XML_ENTITIES = frozenset({"amp", "apos", "gt", "lt", "quot"})
 _XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 XHTML_11_DOCTYPE = (
     '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
@@ -84,6 +91,33 @@ def _is_well_formed_xml(text: str) -> bool:
     return True
 
 
+def _preserve_named_entities(text: str) -> str:
+    """Convert known XHTML named entities to numeric XML references.
+
+    XHTML 1.1 declares its entities in an external DTD. The parser deliberately
+    does not load that DTD, so named references would otherwise be discarded.
+    Comments, CDATA sections and processing instructions are left untouched.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name in _PREDEFINED_XML_ENTITIES:
+            return match.group(0)
+        value = html5.get(f"{name};")
+        if value is None:
+            return match.group(0)
+        return "".join(f"&#x{ord(char):X};" for char in value)
+
+    parts: list[str] = []
+    start = 0
+    for protected in _PROTECTED_MARKUP.finditer(text):
+        parts.append(_NAMED_ENTITY.sub(replace, text[start : protected.start()]))
+        parts.append(protected.group(0))
+        start = protected.end()
+    parts.append(_NAMED_ENTITY.sub(replace, text[start:]))
+    return "".join(parts)
+
+
 def parse_markup(text: str, *, force_html: bool = False) -> tuple[BeautifulSoup, str]:
     """Parse markup, returning ``(soup, parser)`` where parser is xml or html.
 
@@ -96,10 +130,11 @@ def parse_markup(text: str, *, force_html: bool = False) -> tuple[BeautifulSoup,
     if has_entity_declarations(text):
         text = _DOCTYPE_FULL.sub("", text)
     parse_text = _XML_DECL.sub("", text, count=1)
+    xml_text = _preserve_named_entities(parse_text)
 
-    if not force_html and _is_well_formed_xml(parse_text):
+    if not force_html and _is_well_formed_xml(xml_text):
         try:
-            soup = BeautifulSoup(parse_text, "lxml-xml")
+            soup = BeautifulSoup(xml_text, "lxml-xml")
         except Exception:  # pragma: no cover - lxml rarely raises here
             soup = None
         if soup is not None and soup.find() is not None:
