@@ -207,8 +207,6 @@ def test_registry_places_standard_ebooks_among_download_sources():
         "standardebooks",
         "oapen",
         "doab",
-        "annas",
-        "oceanofpdf",
     ]
     ebooks = next(source for source in sources if source.name == "standardebooks")
     assert ebooks.label == "Standard Ebooks"

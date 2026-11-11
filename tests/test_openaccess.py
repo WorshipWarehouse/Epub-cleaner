@@ -262,8 +262,6 @@ def test_registry_places_both_open_access_sources_among_downloads():
         "standardebooks",
         "oapen",
         "doab",
-        "annas",
-        "oceanofpdf",
     ]
     by_name = {source.name: source for source in sources}
     assert by_name["oapen"].label == "OAPEN Library"

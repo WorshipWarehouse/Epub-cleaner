@@ -6,8 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- Anna's Archive and Ocean of PDF are no longer search sources. Neither can show
+  that a file is distributed with the publisher's authorisation, so they were link
+  only and contributed nothing to a card beyond a search link. `LinkOnlySource`
+  remains as the adapter for operator-added external sources, and the OceanofPDF
+  branding patterns stay in the cleaner, where they belong.
+
 ### Added
 
+- Server-defined extra sources: a JSON (or TOML) file named by
+  `EPUB_PURIFIER_EXTRA_SOURCES`, default `sources.json`, adds catalogues to search
+  without patching the package. `kind: "link"` entries are external listings that
+  are never fetched; `kind: "module"` entries load an adapter you supply and may
+  use the normal download, scanning and cleaning pipeline. Entries are validated
+  when the source list is built, and a bad entry names itself instead of silently
+  vanishing from search.
+- Legal-availability resolution: a matched book with no downloadable copy of its
+  own (a record-only listing, a lending scan, an HTML-only edition) is looked up
+  by exact title and author in the openly licensed sources, and a copy that is
+  found becomes the card's download and flows through the existing transfer,
+  scanning and five-hour-expiry pipeline. Anna's Archive and Ocean of PDF are
+  never fetched; the lookup is capped per search, skips sources already on the
+  card, accepts only strong title-and-author verdicts, and degrades a card to
+  "available elsewhere" on errors instead of failing the search.
 - Five-hour temporary storage for fetched books: a cleaned copy and its metadata
   are deleted five hours after the server starts downloading the book, whether
   or not it was downloaded. A background worker sweeps every ten minutes, and

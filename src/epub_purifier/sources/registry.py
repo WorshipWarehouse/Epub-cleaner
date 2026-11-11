@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
 
+from .availability import MAX_LOOKUPS, find_authorised_copies, needs_authorised_lookup
 from .base import (
     BookListing,
+    BookResult,
     BookSource,
     SearchResponse,
     SourceError,
     SourceStatus,
     normalize_query,
+    normalize_text,
 )
+from .custom import load_extra_sources
 from .doab import DoabSource
 from .gutenberg import GutenbergSource
 from .internetarchive import InternetArchiveSource
-from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF
 from .matching import SearchCriteria, group_listings, rank_listings
 from .oapen import OapenSource
 from .openlibrary import OpenLibrarySource
@@ -26,7 +29,13 @@ from .wikisource import WikisourceSource
 
 
 def default_sources() -> list[BookSource]:
-    return [
+    """The built-in sources plus whatever this server added in its own file.
+
+    Operator-added sources come last so the built-in catalogue order stays the
+    download preference order used by the ranking and availability code.
+    """
+
+    built_in: list[BookSource] = [
         GutenbergSource(),
         WikisourceSource(),
         InternetArchiveSource(),
@@ -34,9 +43,9 @@ def default_sources() -> list[BookSource]:
         StandardEbooksSource(),
         OapenSource(),
         DoabSource(),
-        ANNAS_ARCHIVE,
-        OCEAN_OF_PDF,
     ]
+    extra = load_extra_sources(reserved=(source.name for source in built_in))
+    return built_in + extra
 
 
 def get_source(name: str, sources: Sequence[BookSource] | None = None) -> BookSource | None:
@@ -117,6 +126,7 @@ def search_books(
     groups = list(group_listings(ranked))
     if groups and search_links:
         groups = _attach_search_links(groups, search_links, available)
+    groups = _resolve_downloads(groups, available)
 
     counts = Counter(
         listing.source
@@ -177,6 +187,70 @@ def _attach_search_links(
             )
         result.append(replace(group, listings=group.listings + tuple(extra)))
     return result
+
+
+def _resolve_downloads(
+    groups: list[BookResult],
+    sources: Sequence[BookSource],
+) -> list[BookResult]:
+    """Give a card a real download when an authorised source holds the work.
+
+    Anna's Archive and Ocean of PDF are never contacted. Only sources with an
+    authorised download path are asked, only cards without a download are
+    considered, and at most :data:`MAX_LOOKUPS` cards per search pay for the
+    extra requests.
+    """
+
+    if not groups:
+        return groups
+    downloadable = [source for source in sources if source.supports_download]
+    if not downloadable:
+        return groups
+
+    remaining = MAX_LOOKUPS
+    resolved: list[BookResult] = []
+    for group in groups:
+        if remaining <= 0 or not needs_authorised_lookup(group):
+            resolved.append(group)
+            continue
+        remaining -= 1
+        copies = find_authorised_copies(group, downloadable)
+        resolved.append(_promote(group, copies) if copies else group)
+    return resolved
+
+
+def _promote(group: BookResult, copies: tuple[BookListing, ...]) -> BookResult:
+    """Put a found download first so the card becomes downloadable.
+
+    ``BookResult`` derives ``downloadable``, ``details_url`` and ``cover_url``
+    from its primary listing, so reordering is what turns "available elsewhere"
+    into a working download without reshaping the response.
+    """
+
+    return replace(
+        group,
+        listings=copies + group.listings,
+        isbn=_merge_values(group.isbn, (listing.isbn for listing in copies)),
+        languages=_merge_values(group.languages, (listing.languages for listing in copies)),
+        formats=_merge_values(group.formats, (listing.formats for listing in copies)),
+    )
+
+
+def _merge_values(
+    existing: tuple[str, ...],
+    groups_of_values: Iterable[tuple[str, ...]],
+) -> tuple[str, ...]:
+    """Union listing fields the way cross-source grouping would have."""
+
+    seen = {normalize_text(value) for value in existing}
+    merged = list(existing)
+    for values in groups_of_values:
+        for value in values:
+            key = normalize_text(value)
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(value)
+    return tuple(merged)
 
 
 __all__ = ["default_sources", "get_source", "search_books"]

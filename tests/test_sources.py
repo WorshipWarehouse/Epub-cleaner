@@ -13,7 +13,7 @@ from epub_purifier.sources.base import (
     normalize_query,
 )
 from epub_purifier.sources.gutenberg import GutenbergSource
-from epub_purifier.sources.links import ANNAS_ARCHIVE, OCEAN_OF_PDF
+from epub_purifier.sources.links import LinkOnlySource
 from epub_purifier.sources.net import Fetched, check_url, host_allowed
 from epub_purifier.sources.registry import search_books
 
@@ -276,16 +276,22 @@ def test_min_interval_waits_between_calls():
 
 
 def test_link_only_sources_are_links_not_downloads():
-    for source in (ANNAS_ARCHIVE, OCEAN_OF_PDF):
-        assert source.supports_download is False
-        listings = source.search("dune messiah")
-        assert len(listings) == 1
-        listing = listings[0]
-        assert listing.is_search_link is True
-        assert listing.downloadable is False
-        assert listing.details_url and "dune+messiah" in listing.details_url
-        with pytest.raises(DownloadRefused):
-            source.download("anything")
+    source = LinkOnlySource(
+        name="external",
+        label="External Index",
+        search_template="https://example.org/find?q={query}",
+        note="test",
+        limitation="Search link only.",
+    )
+    assert source.supports_download is False
+    listings = source.search("dune messiah")
+    assert len(listings) == 1
+    listing = listings[0]
+    assert listing.is_search_link is True
+    assert listing.downloadable is False
+    assert listing.details_url and "dune+messiah" in listing.details_url
+    with pytest.raises(DownloadRefused):
+        source.download("anything")
 
 
 def test_check_url_enforces_scheme_host_and_network():

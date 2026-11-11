@@ -1,9 +1,15 @@
-"""Sources we link to but never fetch from.
+"""The generic external-listing adapter.
 
-Neither Anna's Archive nor Ocean of PDF offers an authorised public interface for
-automated downloads, and Ocean of PDF rehosts books without any way for us to
-verify distribution rights. For both we return a search link and refuse
-``download()`` outright, so a user can inspect availability in their own browser.
+A :class:`LinkOnlySource` takes part in search and opens the site in the user's
+browser, but it never hands this server a file: ``download()`` refuses outright
+and ``supports_download`` is false, so the transfer endpoint rejects it before
+any network call.
+
+This is the shape used for sources an operator adds in the extra-sources file
+(see :mod:`epub_purifier.sources.custom`). It is deliberately the *only* adapter
+here: which catalogues exist is a server's decision, not a constant in this
+package, and a source that cannot show it is authorised to distribute a file is
+represented by a link rather than a download.
 """
 
 from __future__ import annotations
@@ -50,30 +56,4 @@ class LinkOnlySource:
         )
 
 
-ANNAS_ARCHIVE = LinkOnlySource(
-    name="annas",
-    label="Anna's Archive",
-    search_template="https://annas-archive.org/search?q={query}",
-    note=(
-        "Metadata search across several shadow libraries. No authorised public API "
-        "for automated downloads, so this is a link only."
-    ),
-    limitation="Opens Anna's Archive in a new tab; EPUB Purifier does not download from it.",
-)
-
-OCEAN_OF_PDF = LinkOnlySource(
-    name="oceanofpdf",
-    label="Ocean of PDF",
-    search_template="https://oceanofpdf.com/?s={query}",
-    note=(
-        "Third-party rehosting site. EPUB Purifier cannot verify distribution rights "
-        "for its files, so it only shows a search link and never downloads from it."
-    ),
-    limitation=(
-        "Search link only: this site redistributes books without publisher "
-        "authorisation, so EPUB Purifier will not download from it."
-    ),
-)
-
-
-__all__ = ["ANNAS_ARCHIVE", "OCEAN_OF_PDF", "LinkOnlySource"]
+__all__ = ["LinkOnlySource"]

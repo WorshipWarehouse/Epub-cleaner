@@ -293,5 +293,4 @@ def test_default_registry_includes_both_new_sources():
     sources = {source.name: source for source in default_sources()}
     assert sources["wikisource"].supports_download is True
     assert sources["internetarchive"].supports_download is True
-    assert sources["annas"].supports_download is False
     assert list(sources)[:3] == ["gutenberg", "wikisource", "internetarchive"]

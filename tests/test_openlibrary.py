@@ -165,8 +165,6 @@ def test_registry_places_open_library_among_download_sources():
         "standardebooks",
         "oapen",
         "doab",
-        "annas",
-        "oceanofpdf",
     ]
     library = next(source for source in sources if source.name == "openlibrary")
     assert library.supports_download is True
