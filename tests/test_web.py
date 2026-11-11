@@ -154,6 +154,18 @@ def test_batch_download_normalizes_unicode_name_collisions(client, sample_epub):
             assert archive.read(name)[:2] == b"PK"
 
 
+def test_batch_download_avoids_windows_reserved_names(client, sample_epub):
+    """Reserved Windows device names are prefixed in ZIP entries."""
+
+    job_ids = _clean_named_jobs(client, sample_epub, ("CON.epub",))
+
+    response = client.get("/api/download/batch", params={"job_ids": job_ids[0]})
+    assert response.status_code == 200
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["_CON.cleaned.epub"]
+
+
 def test_rejects_non_epub(client):
     response = client.post(
         "/api/inspect", files={"file": ("notes.epub", b"not a zip", "application/epub+zip")}

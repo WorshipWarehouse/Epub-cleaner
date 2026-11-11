@@ -57,6 +57,11 @@ JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
 MAX_BATCH_DOWNLOADS = 10
 MAX_CONCURRENT_BATCH_DOWNLOADS = 2
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
 RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_RATE_LIMIT", "20"))
 SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
@@ -683,8 +688,17 @@ class _BatchArchiveResponse(FileResponse):
         try:
             await super().__call__(scope, receive, send)
         finally:
-            Path(self.path).unlink(missing_ok=True)
-            self._slot.release()
+            try:
+                Path(self.path).unlink(missing_ok=True)
+            finally:
+                self._slot.release()
+
+
+def _zip_stem(display_name: str) -> str:
+    """Return a ZIP-safe stem, prefixing Windows reserved device names."""
+
+    stem = Path(display_name).stem or "cleaned"
+    return f"_{stem}" if stem.upper() in _WINDOWS_RESERVED_STEMS else stem
 
 
 def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> Path:
@@ -698,7 +712,7 @@ def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> P
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             used: set[str] = set()
             for job, source in entries:
-                stem = Path(job.display_name).stem or "cleaned"
+                stem = _zip_stem(job.display_name)
                 name = f"{stem}.cleaned.epub"
                 suffix = 2
                 key = unicodedata.normalize("NFC", name).casefold()
