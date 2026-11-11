@@ -31,6 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
+from typing import BinaryIO
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -100,6 +101,7 @@ class Job:
     report: dict | None = None
     output: Path | None = None
     approved: list[str] = field(default_factory=list)
+    pinned: int = 0
 
 
 class CleanRequest(BaseModel):
@@ -491,41 +493,53 @@ class JobStore:
             return None
         with self._lock:
             job = self._jobs.get(job_id)
-        if job and time.time() - job.created_at > self.ttl:
-            self.discard(job)
-            return None
-        return job
+            if job is None:
+                return None
+            if not job.pinned and time.time() - job.created_at > self.ttl:
+                self._jobs.pop(job_id, None)
+            else:
+                return job
+        shutil.rmtree(job.directory, ignore_errors=True)
+        return None
 
     def save_output(self, job: Job, data: bytes, approved: list[str]) -> Path:
-        """Write a cleaned EPUB and publish it for download under the store lock."""
+        """Write a cleaned EPUB atomically and publish it for download."""
 
-        with self._lock:
-            output = job.directory / "cleaned.epub"
-            output.write_bytes(data)
-            job.output = output
-            job.approved = list(approved)
-            return output
-
-    def batch_zip(self, job_ids: list[str]) -> Path | None:
-        """Snapshot cleaned outputs under the lock, then ZIP them outside it."""
-
-        snapshot_dir = Path(tempfile.mkdtemp(prefix="epub-purifier-batch-"))
+        output = job.directory / "cleaned.epub"
+        temporary = job.directory / f"cleaned-{uuid.uuid4().hex}.epub"
+        temporary.write_bytes(data)
         try:
             with self._lock:
-                entries: list[tuple[Job, Path]] = []
+                os.replace(temporary, output)
+                job.output = output
+                job.approved = list(approved)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return output
+
+    def batch_zip(self, job_ids: list[str]) -> Path | None:
+        """Open cleaned outputs under the lock, then ZIP them outside it."""
+
+        handles: list[tuple[Job, BinaryIO]] = []
+        try:
+            with self._lock:
                 now = time.time()
-                for index, job_id in enumerate(job_ids):
+                for job_id in job_ids:
                     job = self._jobs.get(job_id)
                     if job is None or now - job.created_at > self.ttl:
                         return None
                     if job.output is None or not job.output.exists():
                         return None
-                    snapshot = snapshot_dir / f"{index}.epub"
-                    shutil.copyfile(job.output, snapshot)
-                    entries.append((job, snapshot))
-            return _zip_cleaned_jobs(entries)
+                    handle = job.output.open("rb")
+                    job.pinned += 1
+                    handles.append((job, handle))
+            return _zip_cleaned_jobs(handles)
         finally:
-            shutil.rmtree(snapshot_dir, ignore_errors=True)
+            for _, handle in handles:
+                handle.close()
+            with self._lock:
+                for job, _ in handles:
+                    job.pinned -= 1
 
     def count(self) -> int:
         with self._lock:
@@ -539,9 +553,15 @@ class JobStore:
     def _prune(self) -> None:
         now = time.time()
         with self._lock:
-            expired = [job for job in self._jobs.values() if now - job.created_at > self.ttl]
+            expired = [
+                job
+                for job in self._jobs.values()
+                if not job.pinned and now - job.created_at > self.ttl
+            ]
+            for job in expired:
+                self._jobs.pop(job.job_id, None)
         for job in expired:
-            self.discard(job)
+            shutil.rmtree(job.directory, ignore_errors=True)
 
     def close(self) -> None:
         with self._lock:
@@ -590,15 +610,15 @@ def _safe_display_name(name: str | None) -> str:
     return candidate[:120]
 
 
-def _zip_cleaned_jobs(entries: list[tuple[Job, Path]]) -> Path:
-    """Create one temporary ZIP from snapshots of cleaned job outputs."""
+def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]]) -> Path:
+    """Create one temporary ZIP from open cleaned-output streams."""
 
     with tempfile.NamedTemporaryFile(prefix="epub-purifier-", suffix=".zip", delete=False) as handle:
         path = Path(handle.name)
     try:
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             used: set[str] = set()
-            for job, output in entries:
+            for job, source in entries:
                 stem = Path(job.display_name).stem or "cleaned"
                 name = f"{stem}.cleaned.epub"
                 suffix = 2
@@ -606,7 +626,8 @@ def _zip_cleaned_jobs(entries: list[tuple[Job, Path]]) -> Path:
                     name = f"{stem} ({suffix}).cleaned.epub"
                     suffix += 1
                 used.add(name)
-                archive.write(output, arcname=name)
+                with archive.open(name, "w") as target:
+                    shutil.copyfileobj(source, target)
     except Exception:
         path.unlink(missing_ok=True)
         raise
