@@ -10,8 +10,17 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from epub_purifier.sources.base import BookListing, DownloadRefused, DownloadResult  # noqa: E402
-from epub_purifier.sources.links import ANNAS_ARCHIVE, OCEAN_OF_PDF  # noqa: E402
+from epub_purifier.sources.links import LinkOnlySource  # noqa: E402
 from epub_purifier.web.app import create_app  # noqa: E402
+
+#: A source an operator added in the extra-sources file: searchable, never fetched.
+EXTERNAL = LinkOnlySource(
+    name="external",
+    label="External Index",
+    search_template="https://example.org/find?q={query}",
+    note="Operator-configured external catalogue.",
+    limitation="Search link only: EPUB Purifier does not download from it.",
+)
 
 
 class StubSource:
@@ -52,7 +61,7 @@ class StubSource:
 
 
 def make_client(data: bytes) -> TestClient:
-    app = create_app(sources=[StubSource(data), ANNAS_ARCHIVE, OCEAN_OF_PDF])
+    app = create_app(sources=[StubSource(data), EXTERNAL])
     return TestClient(app)
 
 
@@ -66,9 +75,8 @@ def test_sources_endpoint(client):
     payload = client.get("/api/sources").json()
     by_name = {source["name"]: source for source in payload["sources"]}
     assert by_name["stub"]["supports_download"] is True
-    assert by_name["annas"]["supports_download"] is False
-    assert by_name["oceanofpdf"]["supports_download"] is False
-    assert "never downloads from them" in payload["notice"]
+    assert by_name["external"]["supports_download"] is False
+    assert "extra-sources file" in payload["notice"]
 
 
 def test_search_returns_listings_and_statuses(client):
@@ -114,12 +122,12 @@ def test_search_exposes_a_security_status_per_listing(client):
     by_source = {item["source"]: item["security"] for item in listings}
     assert by_source["stub"]["status"] == "scan_on_fetch"
     assert "not a guarantee" in by_source["stub"]["disclaimer"].lower()
-    assert by_source["annas"]["status"] == "link_only"
-    assert by_source["annas"]["headline"]
+    assert by_source["external"]["status"] == "link_only"
+    assert by_source["external"]["headline"]
 
 
 def test_transfer_without_an_epub_is_a_validation_refusal(sample_epub):
-    app = create_app(sources=[NoEpubSource(), ANNAS_ARCHIVE, OCEAN_OF_PDF])
+    app = create_app(sources=[NoEpubSource(), EXTERNAL])
     with TestClient(app) as client:
         response = client.post("/api/transfer", json={"source": "noepub", "book_id": "28838"})
     assert response.status_code == 422
@@ -134,7 +142,7 @@ def test_search_returns_link_only_sources(client):
         for item in result["listings"]
         if item["is_search_link"]
     ]
-    assert {item["source"] for item in links} == {"annas", "oceanofpdf"}
+    assert {item["source"] for item in links} == {"external"}
     assert all(item["downloadable"] is False for item in links)
     assert all(item["details_url"].startswith("https://") for item in links)
 
@@ -227,7 +235,7 @@ def test_transfer_stays_available_until_deleted(client):
 
 
 def test_transfer_refuses_link_only_source(client):
-    response = client.post("/api/transfer", json={"source": "annas", "book_id": "1"})
+    response = client.post("/api/transfer", json={"source": "external", "book_id": "1"})
     assert response.status_code == 403
     assert "automated downloads" in response.json()["detail"]
 

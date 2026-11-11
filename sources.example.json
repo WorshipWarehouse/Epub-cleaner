@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "name": "monoskop",
+      "label": "Monoskop",
+      "kind": "link",
+      "search_template": "https://monoskop.org/index.php?search={query}",
+      "note": "Open catalogue of art, media and humanities texts.",
+      "limitation": "Opens Monoskop in a new tab; EPUB Purifier does not download from it."
+    }
+  ]
+}

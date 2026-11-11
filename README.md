@@ -139,8 +139,8 @@ each one offers:
 | Internet Archive | advanced-search API | EPUB for openly downloadable items, including Gutenberg mirrors; lending copies are refused before any file is requested |
 | Open Library | official search API, filtered to public scans | EPUB downloaded from Internet Archive for works marked `public`; the item metadata is re-checked and lending copies are refused |
 | Standard Ebooks | official OPDS search feed | EPUB from the entry's own open-access acquisition link; standardebooks.org-only allowlist, size cap and EPUB checks before cleaning |
-| Anna's Archive | link to its search page | none: no authorised public API |
-| Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
+| OAPEN Library | documented DSpace REST search | EPUB attached to the open-access record; oapen.org-only allowlist, size cap and EPUB checks before cleaning |
+| Directory of Open Access Books | documented DSpace REST search | EPUB attached to the record where DOAB holds one; otherwise a link to the record page. doabooks.org-only allowlist |
 
 Standard Ebooks is searched through its official OPDS feed. Its unfiltered
 catalogue feeds (`/feeds/opds`, `/feeds/opds/all`) still answer `401` with a
@@ -152,13 +152,64 @@ only that documented query endpoint — no membership credentials, no HTML
 scraping. Downloads come from the entry's own `application/epub+zip`
 open-access acquisition link.
 
-Anna's Archive and Ocean of PDF stay link-only on purpose. Neither can show that
-a given file is distributed with the publisher's authorisation, so fetching their
-catalogues automatically would turn EPUB Purifier into a downloader for
-unauthorised copies, which this project's scope rules out. Cleaning is still
-available for those books: download the file yourself in the browser, then use
-the upload path — the same validation, scanning and cleaning pipeline runs on any
-EPUB you supply, whatever its origin.
+OAPEN and DOAB are open-access repositories searched through their documented
+DSpace REST APIs, with no registration. Their APIs apply temporary anti-scraping
+limits to busy addresses, so each adapter makes at most one request a second and
+turns a `403` into a clear per-source status instead of failing the whole search.
+An EPUB is offered only when the record actually attaches one.
+
+Sources you add on the server take part in every search as **external
+listings**: they contribute a search link, open the site in the browser, and are
+never fetched from. A source only gets a download path when an adapter exists for
+it, because the adapter is what carries the allowlist, size cap, EPUB check and
+scan gate that a download needs.
+
+Search also resolves what it can elsewhere. When a matched book has no
+downloadable copy of its own — a DOAB record without an EPUB, a lending scan, an
+HTML-only edition — the server asks the openly licensed sources for that exact
+title and author. If one of them holds the EPUB it becomes the card's primary
+listing, so the book is fetched, scanned and cleaned through the same pipeline and
+its five-hour copy the same way; if none does, the card stays an honest
+"available elsewhere" listing, not an error. The lookup is capped at two cards per
+search, never asks a source already on the card, accepts only exact or near
+title-and-author verdicts from the same ranker used everywhere else, and treats a
+rate limit or outage as "available elsewhere" rather than failing the search.
+
+### Adding your own sources
+
+The built-in list stays small on purpose. To add a source without patching the
+package, write a JSON file and point `EPUB_PURIFIER_EXTRA_SOURCES` at it (default:
+`sources.json` in the working directory). [`sources.example.json`](sources.example.json)
+is a starting point:
+
+```json
+{
+  "sources": [
+    {
+      "name": "monoskop",
+      "label": "Monoskop",
+      "kind": "link",
+      "search_template": "https://monoskop.org/index.php?search={query}"
+    }
+  ]
+}
+```
+
+- `kind: "link"` searches the site and opens it in a new tab. The template must be
+  an https URL containing `{query}`, and nothing is ever fetched from it; the
+  transfer endpoint refuses it. Optional `note` and `limitation` strings label the
+  listing in the UI.
+- `kind: "module"` loads an adapter you wrote, as `"package.module:ClassName"`,
+  constructed with no arguments. It is trusted exactly as much as the rest of the
+  code on your server, so it may set `supports_download = True` and use the normal
+  transfer, scanning and cleaning pipeline.
+
+Entries are validated when the source list is built: names must be unique and must
+not shadow a built-in source, and a malformed entry raises an error naming it
+rather than silently disappearing from search. A `.toml` file with the same
+`[[source]]` shape works on Python 3.11+ or with `tomli` installed. Only add
+sources that distribute their books with the rights holder's authorisation — the
+entry is your claim that they do.
 
 Results show the source, available formats, language and a cover image (proxied
 through this server, so your browser never contacts the source). Only listings

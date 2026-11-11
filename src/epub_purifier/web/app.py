@@ -55,11 +55,11 @@ SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
 
 SEARCH_NOTICE = (
-    "Project Gutenberg, Wikisource, Internet Archive, Open Library and Standard Ebooks "
-    "results are public-domain or openly licensed editions: the EPUB is fetched to this "
-    "server, scanned and cleaned "
-    "before it is offered. Anna's Archive and Ocean of PDF are represented by search "
-    "links only; EPUB Purifier never downloads from them."
+    "The built-in sources return public-domain or openly licensed editions: the EPUB "
+    "is fetched to this server, scanned and cleaned before it is offered. When a "
+    "matched book has no downloadable copy, the openly licensed sources are asked for "
+    "the same title and author and that copy is offered instead. Sources this server "
+    "added in its extra-sources file are listed with the capabilities they declared."
 )
 
 TRANSFER_NOTICE = (

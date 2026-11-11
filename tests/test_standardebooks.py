@@ -205,10 +205,10 @@ def test_registry_places_standard_ebooks_among_download_sources():
         "internetarchive",
         "openlibrary",
         "standardebooks",
-        "annas",
-        "oceanofpdf",
+        "oapen",
+        "doab",
     ]
     ebooks = next(source for source in sources if source.name == "standardebooks")
     assert ebooks.label == "Standard Ebooks"
     assert ebooks.supports_download is True
-    assert sum(source.supports_download for source in sources) == 5
+    assert sum(source.supports_download for source in sources) == 7

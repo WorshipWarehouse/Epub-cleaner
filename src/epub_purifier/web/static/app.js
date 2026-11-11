@@ -459,6 +459,11 @@ if (searchForm) {
       children.push(make("p", { class: "result-match", text: matchLabels[match.type] }));
     }
     children.push(make("h3", { class: "result-title", text: result.title }));
+    children.push(
+      result.downloadable
+        ? make("span", { class: "badge good", text: "download available" })
+        : make("span", { class: "badge muted", text: "available elsewhere" }),
+    );
     if (meta.length) children.push(make("p", { class: "meta", text: meta.join(" · ") }));
 
     const sourceBlock = make("div", { class: "result-sources" });

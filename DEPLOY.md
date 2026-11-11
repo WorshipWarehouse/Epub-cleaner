@@ -55,10 +55,19 @@ sudo docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:8000:8000 \
   -v epub-purifier-data:/var/lib/epub-purifier \
+  -v /etc/epub-purifier:/etc/epub-purifier:ro \
   -e EPUB_PURIFIER_HOST=0.0.0.0 \
   -e EPUB_PURIFIER_PORT=8000 \
+  -e EPUB_PURIFIER_EXTRA_SOURCES=/etc/epub-purifier/sources.json \
   epub-purifier
 ```
+
+The optional bind mount is the server's own source list. Put a `sources.json`
+there (see `sources.example.json` in the repository) to add catalogues beyond
+the built-in ones; the file is read at startup and whenever the app builds its
+source list, so replacing it needs a container restart. Without the mount and
+the `EPUB_PURIFIER_EXTRA_SOURCES` variable, the app looks for `sources.json` in
+its working directory and otherwise runs with the built-in sources only.
 
 Check the app directly before involving Caddy:
 
