@@ -488,6 +488,8 @@ class JobStore:
         return job
 
     def get(self, job_id: str) -> Job | None:
+        """Return a live job after pruning expired temporary jobs."""
+
         self._prune()
         if not job_id.isalnum():
             return None
@@ -551,6 +553,8 @@ class JobStore:
         shutil.rmtree(job.directory, ignore_errors=True)
 
     def _prune(self) -> None:
+        """Remove expired, unpinned jobs from the temporary store."""
+
         now = time.time()
         with self._lock:
             expired = [
