@@ -42,6 +42,11 @@ All notable changes to this project are documented here. The format follows
 - Open Library adapter: its official search API is filtered to works marked
   `ebook_access=public`, and the EPUB is downloaded from Internet Archive only
   after the item metadata is re-checked, so lending copies are refused.
+- OAPEN Library and Directory of Open Access Books adapters built on their
+  documented DSpace REST APIs: records are searched with metadata and bitstreams
+  expanded, and an EPUB is downloaded only when the record attaches one. Every
+  request stays on the repository host, calls are limited to one per second, and
+  a temporary anti-scraping `403` becomes a per-source status.
 - Standard Ebooks adapter built on its official OPDS search feed: entries are
   parsed with defusedxml into listings, and downloads use the entry's
   open-access EPUB link under a standardebooks.org-only allowlist. The

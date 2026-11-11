@@ -14,10 +14,12 @@ from .base import (
     SourceStatus,
     normalize_query,
 )
+from .doab import DoabSource
 from .gutenberg import GutenbergSource
 from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF
 from .matching import SearchCriteria, group_listings, rank_listings
+from .oapen import OapenSource
 from .openlibrary import OpenLibrarySource
 from .standardebooks import StandardEbooksSource
 from .wikisource import WikisourceSource
@@ -30,6 +32,8 @@ def default_sources() -> list[BookSource]:
         InternetArchiveSource(),
         OpenLibrarySource(),
         StandardEbooksSource(),
+        OapenSource(),
+        DoabSource(),
         ANNAS_ARCHIVE,
         OCEAN_OF_PDF,
     ]

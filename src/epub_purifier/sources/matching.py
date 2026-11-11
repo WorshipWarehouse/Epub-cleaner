@@ -37,6 +37,8 @@ _SOURCE_ORDER = {
     "internetarchive": 2,
     "openlibrary": 3,
     "wikisource": 4,
+    "oapen": 5,
+    "doab": 6,
 }
 
 _STOPWORDS = {

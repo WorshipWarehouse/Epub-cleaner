@@ -22,9 +22,11 @@ from .base import (
     SourceStatus,
     normalize_query,
 )
+from .doab import DoabSource
 from .gutenberg import GutenbergSource
 from .internetarchive import InternetArchiveSource
 from .links import ANNAS_ARCHIVE, OCEAN_OF_PDF, LinkOnlySource
+from .oapen import OapenSource
 from .openlibrary import OpenLibrarySource
 from .registry import default_sources, get_source, search_books
 from .standardebooks import StandardEbooksSource
@@ -34,6 +36,7 @@ __all__ = [
     "ANNAS_ARCHIVE",
     "BookListing",
     "BookSource",
+    "DoabSource",
     "DownloadRefused",
     "DownloadResult",
     "GutenbergSource",
@@ -41,6 +44,7 @@ __all__ = [
     "LinkOnlySource",
     "MinInterval",
     "OCEAN_OF_PDF",
+    "OapenSource",
     "OpenLibrarySource",
     "SearchQueryError",
     "SearchResponse",

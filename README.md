@@ -129,7 +129,7 @@ job after 30 minutes (`EPUB_PURIFIER_JOB_TTL`), and serves a strict
 
 ## Search and safe downloads
 
-The web UI can search seven sources by title, author or ISBN and compare what
+The web UI can search nine sources by title, author or ISBN and compare what
 each one offers:
 
 | Source | Search | Downloads |
@@ -139,6 +139,8 @@ each one offers:
 | Internet Archive | advanced-search API | EPUB for openly downloadable items, including Gutenberg mirrors; lending copies are refused before any file is requested |
 | Open Library | official search API, filtered to public scans | EPUB downloaded from Internet Archive for works marked `public`; the item metadata is re-checked and lending copies are refused |
 | Standard Ebooks | official OPDS search feed | EPUB from the entry's own open-access acquisition link; standardebooks.org-only allowlist, size cap and EPUB checks before cleaning |
+| OAPEN Library | documented DSpace REST search | EPUB attached to the open-access record; oapen.org-only allowlist, size cap and EPUB checks before cleaning |
+| Directory of Open Access Books | documented DSpace REST search | EPUB attached to the record where DOAB holds one; otherwise a link to the record page. doabooks.org-only allowlist |
 | Anna's Archive | link to its search page | none: no authorised public API |
 | Ocean of PDF | link to its search page | none: distribution rights cannot be verified |
 
@@ -151,6 +153,12 @@ description and links an equivalent public HTML search, so EPUB Purifier uses
 only that documented query endpoint — no membership credentials, no HTML
 scraping. Downloads come from the entry's own `application/epub+zip`
 open-access acquisition link.
+
+OAPEN and DOAB are open-access repositories searched through their documented
+DSpace REST APIs, with no registration. Their APIs apply temporary anti-scraping
+limits to busy addresses, so each adapter makes at most one request a second and
+turns a `403` into a clear per-source status instead of failing the whole search.
+An EPUB is offered only when the record actually attaches one.
 
 Anna's Archive and Ocean of PDF stay link-only on purpose. Neither can show that
 a given file is distributed with the publisher's authorisation, so fetching their
