@@ -21,6 +21,8 @@ def _content(data: bytes, name: str = "OEBPS/chapter1.xhtml") -> bytes:
 
 
 def test_malformed_html_is_rewritten_as_valid_xhtml():
+    """Malformed HTML is rewritten as valid XHTML with a clean EPUB structure."""
+
     chapter = (
         "<html><head><title>One</title></head><body>"
         "<p>Ordinary<br>prose&nbsp;continues.</p>"
@@ -44,6 +46,8 @@ def test_malformed_html_is_rewritten_as_valid_xhtml():
 
 
 def test_epub2_content_gets_an_xhtml_11_doctype():
+    """Every EPUB 2 content document receives the XHTML 1.1 doctype."""
+
     edited_chapter = (
         "<html><head><title>One</title></head><body>"
         "<p>Ordinary prose.</p>"
@@ -85,6 +89,8 @@ def test_epub2_content_gets_an_xhtml_11_doctype():
 
 
 def test_epub2_extension_selected_chapter_is_rebuilt():
+    """An extension-selected EPUB 2 chapter is rebuilt without a content edit."""
+
     chapter = (
         "<html><head><title>One</title></head><body>"
         "<p>Ordinary chapter text.</p>"
@@ -113,6 +119,8 @@ def test_epub2_extension_selected_chapter_is_rebuilt():
 
 
 def test_verifier_rejects_epub2_content_without_a_doctype():
+    """EPUB 2 content documents without an XHTML doctype fail verification."""
+
     opf = opf_package(
         manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
         spine='<itemref idref="ch1"/>',
@@ -132,6 +140,8 @@ def test_verifier_rejects_epub2_content_without_a_doctype():
 
 
 def test_epub2_windows_1252_chapter_is_decoded_before_rebuilding():
+    """Declared Windows-1252 bytes are decoded before EPUB 2 rebuilding."""
+
     chapter = (
         b'<?xml version="1.0" encoding="windows-1252"?>'
         b'<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head>'
@@ -159,6 +169,8 @@ def test_epub2_windows_1252_chapter_is_decoded_before_rebuilding():
 
 
 def test_epub2_utf16_chapter_uses_xml_parser_and_preserves_attributes():
+    """UTF-16 EPUB 2 chapters retain XML parsing and case-sensitive attributes."""
+
     chapter = (
         '<?xml version="1.0" encoding="utf-16"?>'
         f'<html xmlns="{XHTML}"><head><title>One</title></head>'
@@ -188,6 +200,8 @@ def test_epub2_utf16_chapter_uses_xml_parser_and_preserves_attributes():
 
 
 def test_verifier_rejects_a_non_html_doctype_name():
+    """A non-HTML DTD name does not satisfy the EPUB 2 doctype check."""
+
     chapter = (
         '<?xml version="1.0" encoding="utf-8"?>'
         "<!DOCTYPE other>"
@@ -213,6 +227,8 @@ def test_verifier_rejects_a_non_html_doctype_name():
 
 
 def test_verifier_does_not_accept_a_doctype_inside_a_comment():
+    """A doctype hidden in a comment does not satisfy EPUB 2 verification."""
+
     chapter = (
         '<?xml version="1.0" encoding="utf-8"?>'
         "<!-- <!DOCTYPE html> -->"
@@ -315,6 +331,8 @@ def test_html_style_text_survives_xml_serialization():
 
 
 def test_xml_stylesheet_processing_instruction_survives_serialization():
+    """An initial xml-stylesheet instruction survives markup serialization."""
+
     from epub_purifier.markup import parse_markup, serialize_markup
 
     text = (
