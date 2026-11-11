@@ -507,19 +507,25 @@ class JobStore:
             return output
 
     def batch_zip(self, job_ids: list[str]) -> Path | None:
-        """Build a ZIP for cleaned jobs while pinning their outputs under the lock."""
+        """Snapshot cleaned outputs under the lock, then ZIP them outside it."""
 
-        with self._lock:
-            jobs: list[Job] = []
-            now = time.time()
-            for job_id in job_ids:
-                job = self._jobs.get(job_id)
-                if job is None or now - job.created_at > self.ttl:
-                    return None
-                if job.output is None or not job.output.exists():
-                    return None
-                jobs.append(job)
-            return _zip_cleaned_jobs(jobs)
+        snapshot_dir = Path(tempfile.mkdtemp(prefix="epub-purifier-batch-"))
+        try:
+            with self._lock:
+                entries: list[tuple[Job, Path]] = []
+                now = time.time()
+                for index, job_id in enumerate(job_ids):
+                    job = self._jobs.get(job_id)
+                    if job is None or now - job.created_at > self.ttl:
+                        return None
+                    if job.output is None or not job.output.exists():
+                        return None
+                    snapshot = snapshot_dir / f"{index}.epub"
+                    shutil.copyfile(job.output, snapshot)
+                    entries.append((job, snapshot))
+            return _zip_cleaned_jobs(entries)
+        finally:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
 
     def count(self) -> int:
         with self._lock:
@@ -584,18 +590,15 @@ def _safe_display_name(name: str | None) -> str:
     return candidate[:120]
 
 
-def _zip_cleaned_jobs(jobs: list[Job]) -> Path:
-    """Create one temporary ZIP containing each job's cleaned EPUB."""
+def _zip_cleaned_jobs(entries: list[tuple[Job, Path]]) -> Path:
+    """Create one temporary ZIP from snapshots of cleaned job outputs."""
 
     with tempfile.NamedTemporaryFile(prefix="epub-purifier-", suffix=".zip", delete=False) as handle:
         path = Path(handle.name)
     try:
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             used: set[str] = set()
-            for job in jobs:
-                output = job.output
-                if output is None:  # pragma: no cover - caller validates every job
-                    continue
+            for job, output in entries:
                 stem = Path(job.display_name).stem or "cleaned"
                 name = f"{stem}.cleaned.epub"
                 suffix = 2
