@@ -18,7 +18,9 @@ from .config import PurifierConfig
 from .detectors.context import describe_element
 from .detectors.styles import apply_css_edits
 from .markup import (
+    HTML5_DOCTYPE,
     STRUCTURAL_TAGS,
+    XHTML_11_DOCTYPE,
     clean_string,
     is_empty_container,
     local_name,
@@ -34,7 +36,7 @@ from .opf import (
     remove_manifest_paths,
     set_modified_timestamp,
 )
-from .repackage import build_epub
+from .repackage import XHTML_EXTENSIONS, build_epub
 from .validation import ValidationResult, utc_timestamp
 
 
@@ -57,6 +59,8 @@ def clean_book(
     approved: set[str] | frozenset[str] = frozenset(),
     approve_all: bool = False,
 ) -> CleaningOutcome:
+    """Apply approved mutations, prune references and rebuild the EPUB."""
+
     config = config or PurifierConfig()
     analysis = analyze(validation, config)
     ctx = analysis.context
@@ -204,12 +208,37 @@ def clean_book(
         changed.add(package.entry)
 
     # -- serialize --------------------------------------------------------
+    is_epub2 = validation.version.startswith("2.")
+    doctype = XHTML_11_DOCTYPE if is_epub2 else HTML5_DOCTYPE
+    if is_epub2:
+        # XHTML 1.1 requires a doctype even when a document needed no content
+        # edit, so rebuild every content document rather than only changed ones.
+        # Include extension-selected documents the verifier treats as XHTML even
+        # when their manifest media type is unrecognised.
+        content_entries = set(validation.markup_entries)
+        content_entries.update(
+            item.path
+            for item in validation.package.items()
+            if item.path and posixpath.splitext(item.path)[1].lower() in XHTML_EXTENSIONS
+        )
+        for entry in content_entries:
+            resource = ctx.resources.get(entry)
+            if (
+                resource is not None
+                and resource.soup is not None
+                and resource.soup.find("html") is not None
+            ):
+                changed.add(entry)
+
     payload: dict[str, bytes] = {}
     for entry in changed:
         resource = ctx.resources.get(entry)
         if resource is not None and resource.soup is not None:
             payload[entry] = serialize_markup(
-                resource.soup, resource.parser, xml_declaration=resource.xml_declaration
+                resource.soup,
+                resource.parser,
+                xml_declaration=resource.xml_declaration,
+                doctype=doctype,
             )
         elif entry in rewrites:
             payload[entry] = rewrites[entry]
