@@ -314,6 +314,19 @@ def test_html_style_text_survives_xml_serialization():
     assert root.find(f"{{{XHTML}}}head/{{{XHTML}}}style").text == css
 
 
+def test_xml_stylesheet_processing_instruction_survives_serialization():
+    from epub_purifier.markup import parse_markup, serialize_markup
+
+    text = (
+        '<?xml-stylesheet type="text/css" href="style.css"?>'
+        f'<html xmlns="{XHTML}"><head><title>One</title></head>'
+        "<body><p>Ordinary chapter text.</p></body></html>"
+    )
+    soup, parser = parse_markup(text)
+    output = serialize_markup(soup, parser, xml_declaration=True)
+    assert b'<?xml-stylesheet type="text/css" href="style.css"?>' in output
+
+
 def test_refined_modified_timestamp_is_preserved():
     from bs4 import BeautifulSoup
 

@@ -59,7 +59,7 @@ _WS = re.compile(r"\s+")
 _ENTITY_DECL = re.compile(r"<!ENTITY\b", re.IGNORECASE)
 _DOCTYPE = re.compile(r"<!DOCTYPE\b[^>]*(?:\[[^\]]*\]|SYSTEM|PUBLIC)", re.IGNORECASE | re.DOTALL)
 _DOCTYPE_FULL = re.compile(r"<!DOCTYPE\b(?:[^>\[]|\[[^\]]*\])*>", re.IGNORECASE | re.DOTALL)
-_XML_DECL = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
+_XML_DECL = re.compile(r"^\s*<\?xml[ \t\r\n][^>]*\?>", re.IGNORECASE)
 _XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 XHTML_11_DOCTYPE = (
     '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
