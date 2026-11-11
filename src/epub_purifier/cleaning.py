@@ -36,7 +36,7 @@ from .opf import (
     remove_manifest_paths,
     set_modified_timestamp,
 )
-from .repackage import build_epub
+from .repackage import XHTML_EXTENSIONS, build_epub
 from .validation import ValidationResult, utc_timestamp
 
 
@@ -211,7 +211,15 @@ def clean_book(
     if is_epub2:
         # XHTML 1.1 requires a doctype even when a document needed no content
         # edit, so rebuild every content document rather than only changed ones.
-        for entry in validation.markup_entries:
+        # Include extension-selected documents the verifier treats as XHTML even
+        # when their manifest media type is unrecognised.
+        content_entries = set(validation.markup_entries)
+        content_entries.update(
+            item.path
+            for item in validation.package.items()
+            if item.path and posixpath.splitext(item.path)[1].lower() in XHTML_EXTENSIONS
+        )
+        for entry in content_entries:
             resource = ctx.resources.get(entry)
             if (
                 resource is not None

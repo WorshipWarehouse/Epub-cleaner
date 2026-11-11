@@ -44,14 +44,54 @@ def test_malformed_html_is_rewritten_as_valid_xhtml():
 
 
 def test_epub2_content_gets_an_xhtml_11_doctype():
-    chapter = (
+    edited_chapter = (
         "<html><head><title>One</title></head><body>"
         "<p>Ordinary prose.</p>"
         "<p>Downloaded from OceanofPDF.com - free ebooks.</p>"
         "</body></html>"
     )
+    untouched_chapter = (
+        "<html><head><title>Two</title></head><body>"
+        "<p>Untouched chapter text.</p>"
+        "</body></html>"
+    )
     opf = opf_package(
-        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        manifest=(
+            '<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>'
+            '<item id="ch2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>'
+        ),
+        spine='<itemref idref="ch1"/><itemref idref="ch2"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", edited_chapter),
+            ("OEBPS/chapter2.xhtml", untouched_chapter),
+        ]
+    )
+
+    result = clean_epub(data)
+    assert result.data is not None
+    edited_output = _content(result.data)
+    untouched_output = _content(result.data, "OEBPS/chapter2.xhtml")
+    assert b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"' in edited_output
+    assert b'"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"' in edited_output
+    assert b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"' in untouched_output
+    assert b"Untouched chapter text." in untouched_output
+    assert verify_epub(result.data) == []
+
+
+def test_epub2_extension_selected_chapter_is_rebuilt():
+    chapter = (
+        "<html><head><title>One</title></head><body>"
+        "<p>Ordinary chapter text.</p>"
+        "</body></html>"
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/octet-stream"/>',
         spine='<itemref idref="ch1"/>',
         version="2.0",
     )
@@ -68,7 +108,7 @@ def test_epub2_content_gets_an_xhtml_11_doctype():
     assert result.data is not None
     output = _content(result.data)
     assert b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"' in output
-    assert b'"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"' in output
+    assert b"Ordinary chapter text." in output
     assert verify_epub(result.data) == []
 
 
@@ -84,6 +124,31 @@ def test_verifier_rejects_epub2_content_without_a_doctype():
             ("OEBPS/content.opf", opf),
             ("OEBPS/nav.xhtml", NAV),
             ("OEBPS/chapter1.xhtml", CHAPTER_TWO),
+        ]
+    )
+
+    problems = verify_epub(data)
+    assert any("no XHTML doctype" in problem for problem in problems)
+
+
+def test_verifier_does_not_accept_a_doctype_inside_a_comment():
+    chapter = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<!-- <!DOCTYPE html> -->"
+        f'<html xmlns="{XHTML}"><head><title>One</title></head>'
+        "<body><p>Ordinary chapter text.</p></body></html>"
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
         ]
     )
 

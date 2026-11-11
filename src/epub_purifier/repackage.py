@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import io
 import posixpath
-import re
 import zipfile
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -26,7 +25,7 @@ from .opf import (
 FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 _XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 _XHTML_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
-_XHTML_EXTENSIONS = frozenset({".xhtml", ".html", ".htm"})
+XHTML_EXTENSIONS = frozenset({".xhtml", ".html", ".htm"})
 _VOID_ELEMENTS = frozenset(
     {
         "area",
@@ -120,6 +119,16 @@ def _parse_xml(data: bytes):
     return etree.fromstring(data, parser)
 
 
+def _has_html_doctype(root) -> bool:
+    """Return whether the parsed document carries an HTML doctype."""
+
+    info = root.getroottree().docinfo
+    return (
+        info.root_name.lower() == "html"
+        and info.doctype.lstrip().lower().startswith("<!doctype html")
+    )
+
+
 def _check_content_documents(archive: SafeArchive, package: PackageDocument, problems: list[str]) -> None:
     """Reject malformed XHTML and non-empty XHTML void elements."""
 
@@ -127,20 +136,19 @@ def _check_content_documents(archive: SafeArchive, package: PackageDocument, pro
         if not item.path:
             continue
         suffix = posixpath.splitext(item.path)[1].lower()
-        if item.media_type not in _XHTML_MEDIA_TYPES and suffix not in _XHTML_EXTENSIONS:
+        if item.media_type not in _XHTML_MEDIA_TYPES and suffix not in XHTML_EXTENSIONS:
             continue
         if not archive.exists(item.path):
             continue
-        raw = archive.read(item.path)
-        if package.version.startswith("2.") and not re.search(
-            rb"<!DOCTYPE\s+html\b", raw[:4096], re.IGNORECASE
-        ):
-            problems.append(f"EPUB 2 content document has no XHTML doctype: {item.href}")
         try:
+            raw = archive.read(item.path)
             root = _parse_xml(raw)
+            has_html_doctype = _has_html_doctype(root)
         except Exception as exc:  # noqa: BLE001 - report any reader/parser failure
             problems.append(f"content document is not well-formed XML: {item.href} ({exc})")
             continue
+        if package.version.startswith("2.") and not has_html_doctype:
+            problems.append(f"EPUB 2 content document has no XHTML doctype: {item.href}")
         if not isinstance(root.tag, str) or _local_name(root.tag) != "html":
             problems.append(f"content document has no <html> root: {item.href}")
             continue
