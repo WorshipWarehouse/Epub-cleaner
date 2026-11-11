@@ -24,6 +24,7 @@ import os
 import shutil
 import tempfile
 import time
+import unicodedata
 import uuid
 import zipfile
 from collections import OrderedDict
@@ -419,25 +420,39 @@ def create_app(
                 detail=f"Choose between 1 and {MAX_BATCH_DOWNLOADS} cleaned files.",
             )
         await app.state.batch_slots.acquire()
-        task = asyncio.create_task(asyncio.to_thread(store.batch_zip, ids))
-        task.add_done_callback(lambda _: app.state.batch_slots.release())
+        slot = _BatchSlotLease(app.state.batch_slots)
+        try:
+            task = asyncio.create_task(asyncio.to_thread(store.batch_zip, ids))
+        except Exception:
+            slot.release()
+            raise
         try:
             archive_path = await asyncio.shield(task)
         except asyncio.CancelledError:
-            task.add_done_callback(_discard_batch_archive)
+            task.add_done_callback(lambda completed: _discard_batch_archive(completed, slot))
+            raise
+        except Exception:
+            slot.release()
             raise
         if archive_path is None:
+            slot.release()
             raise HTTPException(
                 status_code=404,
                 detail="No cleaned file is available for every job in that batch.",
             )
-        return _BatchArchiveResponse(
-            archive_path,
-            media_type="application/zip",
-            filename="epub-purifier-cleaned.zip",
-            headers={"Cache-Control": "no-store"},
-            background=BackgroundTask(archive_path.unlink, missing_ok=True),
-        )
+        try:
+            return _BatchArchiveResponse(
+                archive_path,
+                media_type="application/zip",
+                filename="epub-purifier-cleaned.zip",
+                headers={"Cache-Control": "no-store"},
+                background=BackgroundTask(archive_path.unlink, missing_ok=True),
+                slot=slot,
+            )
+        except Exception:
+            archive_path.unlink(missing_ok=True)
+            slot.release()
+            raise
 
     @app.get("/api/download/{job_id}")
     async def download(job_id: str) -> FileResponse:
@@ -623,29 +638,53 @@ def _safe_display_name(name: str | None) -> str:
     return candidate[:120]
 
 
-def _discard_batch_archive(task: asyncio.Task[Path | None]) -> None:
-    """Delete a finished batch archive after its request was cancelled."""
+class _BatchSlotLease:
+    """Release a batch-build slot exactly once."""
 
-    if task.cancelled():
-        return
+    def __init__(self, semaphore: asyncio.Semaphore) -> None:
+        self._semaphore = semaphore
+        self._released = False
+
+    def release(self) -> None:
+        """Release the slot if another cleanup path has not already done so."""
+
+        if self._released:
+            return
+        self._released = True
+        self._semaphore.release()
+
+
+def _discard_batch_archive(task: asyncio.Task[Path | None], slot: _BatchSlotLease) -> None:
+    """Delete a cancelled batch archive and release its build slot."""
+
     try:
-        archive_path = task.result()
-    except Exception:
-        return
-    if archive_path is not None:
-        archive_path.unlink(missing_ok=True)
+        if task.cancelled():
+            return
+        try:
+            archive_path = task.result()
+        except Exception:
+            return
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+    finally:
+        slot.release()
 
 
 class _BatchArchiveResponse(FileResponse):
-    """Delete a batch archive whether delivery succeeds, fails, or is cancelled."""
+    """Delete a batch archive and release its slot when delivery ends."""
+
+    def __init__(self, *args, slot: _BatchSlotLease, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._slot = slot
 
     async def __call__(self, scope, receive, send) -> None:
-        """Deliver the archive, then remove it in a cancellation-safe finally block."""
+        """Deliver the archive, then remove it and release the build slot."""
 
         try:
             await super().__call__(scope, receive, send)
         finally:
             Path(self.path).unlink(missing_ok=True)
+            self._slot.release()
 
 
 def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> Path:
@@ -662,10 +701,12 @@ def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> P
                 stem = Path(job.display_name).stem or "cleaned"
                 name = f"{stem}.cleaned.epub"
                 suffix = 2
-                while name.casefold() in used:
+                key = unicodedata.normalize("NFC", name).casefold()
+                while key in used:
                     name = f"{stem} ({suffix}).cleaned.epub"
                     suffix += 1
-                used.add(name.casefold())
+                    key = unicodedata.normalize("NFC", name).casefold()
+                used.add(key)
                 with archive.open(name, "w") as target:
                     shutil.copyfileobj(source, target)
     except Exception:

@@ -511,10 +511,8 @@ async function cleanAllReady() {
     const firstCleaned = state.queue.find((candidate) => candidate.status === "cleaned");
     if (firstCleaned) {
       state.activeId = firstCleaned.id;
-      renderActive();
-    } else {
-      cleanBtn.disabled = true;
     }
+    renderActive();
     setStatus(
       failed ? `${completed - failed} cleaned; ${failed} failed.` : `${completed} files cleaned.`,
       failed > 0,

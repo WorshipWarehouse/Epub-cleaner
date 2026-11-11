@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import unicodedata
 import zipfile
 
 import pytest
@@ -82,11 +83,19 @@ def test_batch_download_returns_all_cleaned_epubs(client, sample_epub):
     assert response.headers["content-type"] == "application/zip"
     assert "epub-purifier-cleaned.zip" in response.headers["content-disposition"]
 
+    cleaned_contents = {}
+    for job_id, expected_name in zip(
+        job_ids, ("first.cleaned.epub", "second.cleaned.epub"), strict=True
+    ):
+        download = client.get(f"/api/download/{job_id}")
+        assert download.status_code == 200
+        cleaned_contents[expected_name] = download.content
+
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         names = set(archive.namelist())
-        assert names == {"first.cleaned.epub", "second.cleaned.epub"}
+        assert names == set(cleaned_contents)
         for name in names:
-            assert archive.read(name)[:2] == b"PK"
+            assert archive.read(name) == cleaned_contents[name]
 
 
 def test_batch_download_rejects_unknown_jobs(client):
@@ -96,11 +105,11 @@ def test_batch_download_rejects_unknown_jobs(client):
     assert response.status_code == 404
 
 
-def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_epub):
-    """Names that differ only by case still produce distinct ZIP entries."""
+def _clean_named_jobs(client, sample_epub, names):
+    """Clean one sample EPUB per display name and return the job ids."""
 
     job_ids = []
-    for name in ("Book.epub", "book.epub"):
+    for name in names:
         inspected = client.post(
             "/api/inspect",
             files={"file": (name, sample_epub, "application/epub+zip")},
@@ -110,6 +119,13 @@ def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_e
         cleaned = client.post("/api/clean", json={"job_id": job_id, "approve_all": True})
         assert cleaned.status_code == 200
         job_ids.append(job_id)
+    return job_ids
+
+
+def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_epub):
+    """Names that differ only by case still produce distinct ZIP entries."""
+
+    job_ids = _clean_named_jobs(client, sample_epub, ("Book.epub", "book.epub"))
 
     response = client.get("/api/download/batch", params={"job_ids": ",".join(job_ids)})
     assert response.status_code == 200
@@ -118,6 +134,22 @@ def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_e
         names = archive.namelist()
         assert len(names) == 2
         assert len({name.casefold() for name in names}) == 2
+        for name in names:
+            assert archive.read(name)[:2] == b"PK"
+
+
+def test_batch_download_normalizes_unicode_name_collisions(client, sample_epub):
+    """Composed and decomposed ZIP names are treated as the same filename."""
+
+    job_ids = _clean_named_jobs(client, sample_epub, ("Café.epub", "Cafe\u0301.epub"))
+
+    response = client.get("/api/download/batch", params={"job_ids": ",".join(job_ids)})
+    assert response.status_code == 200
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert len(names) == 2
+        assert len({unicodedata.normalize("NFC", name).casefold() for name in names}) == 2
         for name in names:
             assert archive.read(name)[:2] == b"PK"
 
