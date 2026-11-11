@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -57,6 +60,36 @@ def test_inspect_clean_download(client, sample_epub):
     assert download.status_code == 200
     assert download.content[:2] == b"PK"
     assert "attachment" in download.headers["content-disposition"]
+
+
+def test_batch_download_returns_all_cleaned_epubs(client, sample_epub):
+    job_ids = []
+    for name in ("first.epub", "second.epub"):
+        inspected = client.post(
+            "/api/inspect",
+            files={"file": (name, sample_epub, "application/epub+zip")},
+        )
+        assert inspected.status_code == 200
+        job_id = inspected.json()["job_id"]
+        cleaned = client.post("/api/clean", json={"job_id": job_id, "approve_all": True})
+        assert cleaned.status_code == 200
+        job_ids.append(job_id)
+
+    response = client.get("/api/download/batch", params={"job_ids": ",".join(job_ids)})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "epub-purifier-cleaned.zip" in response.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = set(archive.namelist())
+        assert names == {"first.cleaned.epub", "second.cleaned.epub"}
+        for name in names:
+            assert archive.read(name)[:2] == b"PK"
+
+
+def test_batch_download_rejects_unknown_jobs(client):
+    response = client.get("/api/download/batch", params={"job_ids": "0123456789abcdef"})
+    assert response.status_code == 404
 
 
 def test_rejects_non_epub(client):

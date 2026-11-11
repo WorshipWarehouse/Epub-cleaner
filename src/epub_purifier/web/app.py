@@ -13,6 +13,7 @@ DELETE /api/transfer/{id}  delete one temporary copy now
 GET  /api/cover/{src}/{id} proxied cover image
 POST /api/inspect          upload an EPUB, get a report
 POST /api/clean            clean an inspected job (approved ids optional)
+GET  /api/download/batch   download several cleaned EPUBs as one ZIP
 GET  /api/download/{job}   download the cleaned EPUB
 """
 
@@ -24,6 +25,7 @@ import shutil
 import tempfile
 import time
 import uuid
+import zipfile
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -34,6 +36,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from ..config import PurifierConfig
 from ..errors import DrmProtectedError, PurifierError, ValidationError
@@ -50,6 +53,7 @@ from ..transfer import (
 
 JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
+MAX_BATCH_DOWNLOADS = 10
 RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_RATE_LIMIT", "20"))
 SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
@@ -401,6 +405,32 @@ def create_app(
         report["output"]["download_url"] = f"/api/download/{job.job_id}"
         return JSONResponse({"job_id": job.job_id, "report": report})
 
+    @app.get("/api/download/batch")
+    async def batch_download(job_ids: str) -> FileResponse:
+        ids = list(dict.fromkeys(part.strip() for part in job_ids.split(",") if part.strip()))
+        if not ids or len(ids) > MAX_BATCH_DOWNLOADS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Choose between 1 and {MAX_BATCH_DOWNLOADS} cleaned files.",
+            )
+        jobs: list[Job] = []
+        for job_id in ids:
+            job = store.get(job_id)
+            if job is None or job.output is None or not job.output.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail="No cleaned file is available for every job in that batch.",
+                )
+            jobs.append(job)
+        archive_path = _zip_cleaned_jobs(jobs)
+        return FileResponse(
+            archive_path,
+            media_type="application/zip",
+            filename="epub-purifier-cleaned.zip",
+            headers={"Cache-Control": "no-store"},
+            background=BackgroundTask(archive_path.unlink, missing_ok=True),
+        )
+
     @app.get("/api/download/{job_id}")
     async def download(job_id: str) -> FileResponse:
         job = store.get(job_id)
@@ -530,6 +560,32 @@ def _safe_display_name(name: str | None) -> str:
     candidate = "".join(ch for ch in candidate if ch.isprintable() and ch not in {"/", "\\"})
     candidate = candidate.strip() or "upload.epub"
     return candidate[:120]
+
+
+def _zip_cleaned_jobs(jobs: list[Job]) -> Path:
+    """Create one temporary ZIP containing each job's cleaned EPUB."""
+
+    with tempfile.NamedTemporaryFile(prefix="epub-purifier-", suffix=".zip", delete=False) as handle:
+        path = Path(handle.name)
+    try:
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            used: set[str] = set()
+            for job in jobs:
+                output = job.output
+                if output is None:  # pragma: no cover - caller validates every job
+                    continue
+                stem = Path(job.display_name).stem or "cleaned"
+                name = f"{stem}.cleaned.epub"
+                suffix = 2
+                while name in used:
+                    name = f"{stem} ({suffix}).cleaned.epub"
+                    suffix += 1
+                used.add(name)
+                archive.write(output, arcname=name)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def _public_result(result: BookResult) -> dict[str, object]:

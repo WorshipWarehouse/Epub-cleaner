@@ -122,9 +122,14 @@
 
       <div class="actions">
         <button id="inspect-btn" class="button primary" disabled>Inspect files</button>
+        <button id="clean-all-btn" class="button ghost" hidden>Clean all inspected files</button>
         <button id="reset-btn" class="button ghost" hidden>Start over</button>
       </div>
       <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="batch-download" class="download-line" hidden>
+        <a id="batch-download-link" class="button primary" href="#" download="epub-purifier-cleaned.zip">Download all cleaned EPUBs (.zip)</a>
+        <span id="batch-download-meta" class="meta"></span>
+      </div>
     </section>
 
     <section id="results" class="panel" aria-labelledby="results-heading" hidden>
