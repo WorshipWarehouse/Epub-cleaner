@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import posixpath
+import re
 import unicodedata
 import zipfile
 import zlib
@@ -30,6 +31,8 @@ _ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZ
 _KNOWN_COMPRESSION = _ALLOWED_COMPRESSION | {zipfile.ZIP_LZMA}
 
 _CONTROL_CHARS = {chr(c) for c in range(0x20) if chr(c) not in "\t"}
+_XML_DECL_BYTES = re.compile(rb"^\s*<\?xml\b[^>]*\?>", re.IGNORECASE)
+_XML_ENCODING_BYTES = re.compile(rb"\bencoding\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -221,6 +224,11 @@ class SafeArchive:
         data = self.read(name)
         return decode_text(data, encoding)
 
+    def read_markup_text(self, name: str) -> str:
+        """Decode an XML/XHTML member using its own declared encoding."""
+
+        return decode_markup(self.read(name))
+
     def close(self) -> None:
         self._zip.close()
 
@@ -229,6 +237,29 @@ class SafeArchive:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+
+def decode_markup(data: bytes) -> str:
+    """Decode XML bytes using a BOM or the XML declaration's encoding."""
+
+    candidates: list[str] = []
+    if data.startswith(b"\xef\xbb\xbf"):
+        candidates.append("utf-8-sig")
+    elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        candidates.append("utf-16")
+    else:
+        declaration = _XML_DECL_BYTES.match(data[:1024])
+        if declaration:
+            match = _XML_ENCODING_BYTES.search(declaration.group(0))
+            if match:
+                candidates.append(match.group(1).decode("ascii", errors="ignore"))
+    candidates.extend(("utf-8", "utf-8-sig", "latin-1"))
+    for encoding in dict.fromkeys(candidates):
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode("utf-8", errors="replace")  # pragma: no cover - latin-1 never fails
 
 
 def decode_text(data: bytes, fallback: str = "utf-8") -> str:

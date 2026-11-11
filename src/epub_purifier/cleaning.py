@@ -59,6 +59,8 @@ def clean_book(
     approved: set[str] | frozenset[str] = frozenset(),
     approve_all: bool = False,
 ) -> CleaningOutcome:
+    """Apply approved mutations, prune references and rebuild the EPUB."""
+
     config = config or PurifierConfig()
     analysis = analyze(validation, config)
     ctx = analysis.context

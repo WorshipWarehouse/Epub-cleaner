@@ -88,6 +88,8 @@ def analyze(validation: ValidationResult, config: PurifierConfig | None = None) 
 
 # -- context -------------------------------------------------------------
 def build_context(validation: ValidationResult, config: PurifierConfig) -> Context:
+    """Build parsed resources and navigation metadata for analysis."""
+
     package = validation.package
     archive = validation.archive
     manifest_media = {item.path: item.media_type for item in package.items() if item.path}
@@ -115,7 +117,7 @@ def build_context(validation: ValidationResult, config: PurifierConfig) -> Conte
 
         if is_markup:
             try:
-                text = archive.read_text(name)
+                text = archive.read_markup_text(name)
             except Exception:  # noqa: BLE001, S112 - unreadable member is reported elsewhere
                 continue
             soup, parser = parse_markup(text)

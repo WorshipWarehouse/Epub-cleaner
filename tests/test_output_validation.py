@@ -131,6 +131,87 @@ def test_verifier_rejects_epub2_content_without_a_doctype():
     assert any("no XHTML doctype" in problem for problem in problems)
 
 
+def test_epub2_windows_1252_chapter_is_decoded_before_rebuilding():
+    chapter = (
+        b'<?xml version="1.0" encoding="windows-1252"?>'
+        b'<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head>'
+        b'<body><p>Price: \x80</p></body></html>'
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/octet-stream"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
+        ]
+    )
+
+    result = clean_epub(data)
+    assert result.data is not None
+    output = _content(result.data)
+    assert b"Price: \xe2\x82\xac" in output
+    assert verify_epub(result.data) == []
+
+
+def test_epub2_utf16_chapter_uses_xml_parser_and_preserves_attributes():
+    chapter = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        f'<html xmlns="{XHTML}"><head><title>One</title></head>'
+        '<body><svg xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 10 10"><title>Figure</title></svg></body></html>'
+    ).encode("utf-16")
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/octet-stream"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
+        ]
+    )
+
+    result = clean_epub(data)
+    assert result.data is not None
+    output = _content(result.data)
+    assert b'viewBox="0 0 10 10"' in output
+    assert b'viewbox=' not in output
+    assert verify_epub(result.data) == []
+
+
+def test_verifier_rejects_a_non_html_doctype_name():
+    chapter = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<!DOCTYPE other>"
+        f'<html xmlns="{XHTML}"><head><title>One</title></head>'
+        "<body><p>Ordinary chapter text.</p></body></html>"
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
+        ]
+    )
+
+    problems = verify_epub(data)
+    assert any("no XHTML doctype" in problem for problem in problems)
+
+
 def test_verifier_does_not_accept_a_doctype_inside_a_comment():
     chapter = (
         '<?xml version="1.0" encoding="utf-8"?>'

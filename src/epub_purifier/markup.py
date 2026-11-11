@@ -89,20 +89,23 @@ def parse_markup(text: str, *, force_html: bool = False) -> tuple[BeautifulSoup,
 
     Documents that declare custom XML entities are parsed *after* their doctype
     is removed, so no entity is ever expanded while scanning untrusted input.
+    The declaration is removed before parsing because its encoding describes the
+    original bytes, while the parser receives Unicode text.
     """
 
     if has_entity_declarations(text):
         text = _DOCTYPE_FULL.sub("", text)
+    parse_text = _XML_DECL.sub("", text, count=1)
 
-    if not force_html and _is_well_formed_xml(text):
+    if not force_html and _is_well_formed_xml(parse_text):
         try:
-            soup = BeautifulSoup(text, "lxml-xml")
+            soup = BeautifulSoup(parse_text, "lxml-xml")
         except Exception:  # pragma: no cover - lxml rarely raises here
             soup = None
         if soup is not None and soup.find() is not None:
             return soup, "xml"
 
-    soup = BeautifulSoup(text, "lxml")
+    soup = BeautifulSoup(parse_text, "lxml")
     return soup, "html"
 
 

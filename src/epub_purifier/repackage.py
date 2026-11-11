@@ -120,13 +120,10 @@ def _parse_xml(data: bytes):
 
 
 def _has_html_doctype(root) -> bool:
-    """Return whether the parsed document carries an HTML doctype."""
+    """Return whether the parsed document declares HTML as its DTD name."""
 
-    info = root.getroottree().docinfo
-    return (
-        info.root_name.lower() == "html"
-        and info.doctype.lstrip().lower().startswith("<!doctype html")
-    )
+    dtd = root.getroottree().docinfo.internalDTD
+    return dtd is not None and dtd.name.lower() == "html"
 
 
 def _check_content_documents(archive: SafeArchive, package: PackageDocument, problems: list[str]) -> None:
