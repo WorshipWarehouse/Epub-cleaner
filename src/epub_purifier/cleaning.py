@@ -256,6 +256,11 @@ def clean_book(
     for name in validation.archive.names:
         if name in dropped or name == "mimetype" or name == "META-INF/container.xml":
             continue
+        # SafeArchive normalizes ``META-INF/`` to ``META-INF``. Writing that
+        # directory entry through build_epub would create a zero-byte file that
+        # conflicts with the real directory on extraction.
+        if validation.archive.info(name).is_dir:
+            continue
         if name in payload:
             data = payload[name]
         else:

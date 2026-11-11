@@ -27,6 +27,35 @@ def test_cleaned_output_is_valid(sample_epub):
         assert "META-INF/container.xml" in archive.namelist()
 
 
+def test_cleaned_output_omits_directory_placeholders(tmp_path):
+    """Directory entries must not become zero-byte files in the cleaned EPUB."""
+
+    from .conftest import CHAPTER_TWO, simple_book
+
+    source = simple_book(
+        CHAPTER_TWO,
+        extra_entries=[
+            ("META-INF/", b""),
+            ("OEBPS/", b""),
+            ("OEBPS/Images/", b""),
+        ],
+    )
+    result = clean_epub(source)
+    assert result.data is not None
+
+    with _zip(result.data) as archive:
+        names = set(archive.namelist())
+        assert "META-INF" not in names
+        assert "OEBPS" not in names
+        assert "OEBPS/Images" not in names
+        assert all(
+            info.file_size or info.filename.endswith("/")
+            for info in archive.infolist()
+        )
+        # This is the operation Apple Books performs and the bug used to fail.
+        archive.extractall(tmp_path)
+
+
 def test_opf_remains_well_formed(sample_epub):
     from bs4 import BeautifulSoup
 
