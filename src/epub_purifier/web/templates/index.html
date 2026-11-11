@@ -108,11 +108,11 @@
     <section class="panel" aria-labelledby="upload-heading">
       <h2 id="upload-heading"><span class="step">2</span> Or clean a file you already have</h2>
       <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="dz-hint">
-        <input id="file-input" type="file" accept=".epub,application/epub+zip" hidden>
-        <p class="dz-title">Drop an EPUB anywhere on this page</p>
-        <p class="dz-hint" id="dz-hint">or click to browse &middot; EPUB 2 and 3 &middot; up to 256&nbsp;MiB</p>
-        <p id="file-name" class="file-name" hidden></p>
+        <input id="file-input" type="file" accept=".epub,application/epub+zip" multiple hidden>
+        <p class="dz-title">Drop one or more EPUBs anywhere on this page</p>
+        <p class="dz-hint" id="dz-hint">or click to browse &middot; EPUB 2 and 3 &middot; up to 256&nbsp;MiB each</p>
       </div>
+      <ul id="file-queue" class="file-queue" aria-label="Selected EPUB files" hidden></ul>
 
       <fieldset class="options">
         <legend>Options</legend>
@@ -121,7 +121,7 @@
       </fieldset>
 
       <div class="actions">
-        <button id="inspect-btn" class="button primary" disabled>Inspect file</button>
+        <button id="inspect-btn" class="button primary" disabled>Inspect files</button>
         <button id="reset-btn" class="button ghost" hidden>Start over</button>
       </div>
       <p id="status" class="status" role="status" aria-live="polite"></p>

@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Multi-file upload queue: the web UI accepts up to ten EPUBs at once,
+  inspects them sequentially through the existing single-file endpoint, and
+  keeps each report, review selection and cleaned download separate.
 - Server-defined extra sources: a JSON (or TOML) file named by
   `EPUB_PURIFIER_EXTRA_SOURCES`, default `sources.json`, adds catalogues to search
   without patching the package. `kind: "link"` entries are external listings that

@@ -140,7 +140,7 @@ jobs:
         run: cat web.log
 
   ui:
-    name: UI drop-to-inspect (Playwright)
+    name: UI upload and drop tests (Playwright)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
         run: npm ci
       - name: Chrome availability
         run: google-chrome --version
-      - name: Drop-to-inspect browser test
+      - name: Browser tests
         run: npx playwright test
 
   proof:

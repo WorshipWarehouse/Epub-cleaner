@@ -1,0 +1,48 @@
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const { test, expect } = require("@playwright/test");
+
+const fixture = path.join(__dirname, ".tmp", "branded.epub");
+
+test("multiple dropped EPUBs are inspected as separate queue entries", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(String(error)));
+
+  await page.goto("/");
+  await expect(page.locator("#file-queue")).toBeHidden();
+  await expect(page.locator("#file-input")).toHaveAttribute("multiple", "");
+
+  const payload = fs.readFileSync(fixture).toString("base64");
+
+  await page.evaluate(({ payload }) => {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], "first.epub", { type: "application/epub+zip" }));
+    transfer.items.add(new File([bytes], "second.epub", { type: "application/epub+zip" }));
+    const target = document.querySelector("main");
+    target.dispatchEvent(
+      new DragEvent("drop", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }),
+    );
+  }, { payload });
+
+  await expect(page.locator("#file-queue .queue-item")).toHaveCount(2, { timeout: 10_000 });
+  await expect(page.locator('#file-queue .queue-item[data-status="ready"]')).toHaveCount(2, {
+    timeout: 30_000,
+  });
+  await expect(page.locator("#file-queue .queue-item.active")).toHaveCount(1);
+  await expect(page.locator("#file-queue")).toContainText("first.epub");
+  await expect(page.locator("#file-queue")).toContainText("second.epub");
+  await expect(page.locator("#results")).toBeVisible();
+  await expect(page.locator("#status")).toHaveText("2 files inspected.");
+  expect(pageErrors).toEqual([]);
+});
