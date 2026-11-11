@@ -13,6 +13,7 @@ DELETE /api/transfer/{id}  delete one temporary copy now
 GET  /api/cover/{src}/{id} proxied cover image
 POST /api/inspect          upload an EPUB, get a report
 POST /api/clean            clean an inspected job (approved ids optional)
+GET  /api/download/batch   download several cleaned EPUBs as one ZIP
 GET  /api/download/{job}   download the cleaned EPUB
 """
 
@@ -23,17 +24,21 @@ import os
 import shutil
 import tempfile
 import time
+import unicodedata
 import uuid
+import zipfile
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
+from typing import BinaryIO
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from ..config import PurifierConfig
 from ..errors import DrmProtectedError, PurifierError, ValidationError
@@ -50,6 +55,13 @@ from ..transfer import (
 
 JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
+MAX_BATCH_DOWNLOADS = 10
+MAX_CONCURRENT_BATCH_DOWNLOADS = 2
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
 RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_RATE_LIMIT", "20"))
 SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
@@ -96,6 +108,7 @@ class Job:
     report: dict | None = None
     output: Path | None = None
     approved: list[str] = field(default_factory=list)
+    pinned: int = 0
 
 
 class CleanRequest(BaseModel):
@@ -171,6 +184,7 @@ def create_app(
     source_list = list(sources) if sources is not None else default_sources()
     transfers = transfer or TransferService(sources=source_list)
     app.state.jobs = store
+    app.state.batch_slots = asyncio.Semaphore(MAX_CONCURRENT_BATCH_DOWNLOADS)
     app.state.rate_limiter = RateLimiter()
     app.state.search_limiter = RateLimiter(limit=SEARCH_RATE_LIMIT)
     app.state.transfer_limiter = RateLimiter(limit=TRANSFER_RATE_LIMIT)
@@ -368,6 +382,8 @@ def create_app(
 
     @app.post("/api/clean")
     async def clean_endpoint(payload: CleanRequest) -> JSONResponse:
+        """Clean an inspected upload and persist its downloadable EPUB."""
+
         job = store.get(payload.job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="That inspection expired; upload the file again.")
@@ -392,14 +408,56 @@ def create_app(
 
         if result.data is None:  # pragma: no cover - defensive
             raise HTTPException(status_code=500, detail="No output was produced.")
-        output = job.directory / "cleaned.epub"
-        output.write_bytes(result.data)
-        job.output = output
-        job.approved = list(payload.approved)
+        store.save_output(job, result.data, payload.approved)
 
         report = result.report.to_dict()
         report["output"]["download_url"] = f"/api/download/{job.job_id}"
         return JSONResponse({"job_id": job.job_id, "report": report})
+
+    @app.get("/api/download/batch")
+    async def batch_download(job_ids: str) -> FileResponse:
+        """Return every requested cleaned EPUB as one ZIP archive."""
+
+        ids = list(dict.fromkeys(part.strip() for part in job_ids.split(",") if part.strip()))
+        if not ids or len(ids) > MAX_BATCH_DOWNLOADS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Choose between 1 and {MAX_BATCH_DOWNLOADS} cleaned files.",
+            )
+        await app.state.batch_slots.acquire()
+        slot = _BatchSlotLease(app.state.batch_slots)
+        try:
+            task = asyncio.create_task(asyncio.to_thread(store.batch_zip, ids))
+        except Exception:
+            slot.release()
+            raise
+        try:
+            archive_path = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            task.add_done_callback(lambda completed: _discard_batch_archive(completed, slot))
+            raise
+        except Exception:
+            slot.release()
+            raise
+        if archive_path is None:
+            slot.release()
+            raise HTTPException(
+                status_code=404,
+                detail="No cleaned file is available for every job in that batch.",
+            )
+        try:
+            return _BatchArchiveResponse(
+                archive_path,
+                media_type="application/zip",
+                filename="epub-purifier-cleaned.zip",
+                headers={"Cache-Control": "no-store"},
+                background=BackgroundTask(archive_path.unlink, missing_ok=True),
+                slot=slot,
+            )
+        except Exception:
+            archive_path.unlink(missing_ok=True)
+            slot.release()
+            raise
 
     @app.get("/api/download/{job_id}")
     async def download(job_id: str) -> FileResponse:
@@ -459,15 +517,60 @@ class JobStore:
         return job
 
     def get(self, job_id: str) -> Job | None:
+        """Return a live job after pruning expired temporary jobs."""
+
         self._prune()
         if not job_id.isalnum():
             return None
         with self._lock:
             job = self._jobs.get(job_id)
-        if job and time.time() - job.created_at > self.ttl:
-            self.discard(job)
-            return None
-        return job
+            if job is None:
+                return None
+            if not job.pinned and time.time() - job.created_at > self.ttl:
+                self._jobs.pop(job_id, None)
+            else:
+                return job
+        shutil.rmtree(job.directory, ignore_errors=True)
+        return None
+
+    def save_output(self, job: Job, data: bytes, approved: list[str]) -> Path:
+        """Write a cleaned EPUB atomically and publish it for download."""
+
+        output = job.directory / "cleaned.epub"
+        temporary = job.directory / f"cleaned-{uuid.uuid4().hex}.epub"
+        try:
+            temporary.write_bytes(data)
+            with self._lock:
+                os.replace(temporary, output)
+                job.output = output
+                job.approved = list(approved)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return output
+
+    def batch_zip(self, job_ids: list[str]) -> Path | None:
+        """Open cleaned outputs under the lock, then ZIP them outside it."""
+
+        handles: list[tuple[Job, BinaryIO]] = []
+        try:
+            with self._lock:
+                now = time.time()
+                for job_id in job_ids:
+                    job = self._jobs.get(job_id)
+                    if job is None or now - job.created_at > self.ttl:
+                        return None
+                    if job.output is None or not job.output.exists():
+                        return None
+                    handle = job.output.open("rb")
+                    job.pinned += 1
+                    handles.append((job, handle))
+            return _zip_cleaned_jobs(handles, self.root)
+        finally:
+            for _, handle in handles:
+                handle.close()
+            with self._lock:
+                for job, _ in handles:
+                    job.pinned -= 1
 
     def count(self) -> int:
         with self._lock:
@@ -479,11 +582,19 @@ class JobStore:
         shutil.rmtree(job.directory, ignore_errors=True)
 
     def _prune(self) -> None:
+        """Remove expired, unpinned jobs from the temporary store."""
+
         now = time.time()
         with self._lock:
-            expired = [job for job in self._jobs.values() if now - job.created_at > self.ttl]
+            expired = [
+                job
+                for job in self._jobs.values()
+                if not job.pinned and now - job.created_at > self.ttl
+            ]
+            for job in expired:
+                self._jobs.pop(job.job_id, None)
         for job in expired:
-            self.discard(job)
+            shutil.rmtree(job.directory, ignore_errors=True)
 
     def close(self) -> None:
         with self._lock:
@@ -530,6 +641,92 @@ def _safe_display_name(name: str | None) -> str:
     candidate = "".join(ch for ch in candidate if ch.isprintable() and ch not in {"/", "\\"})
     candidate = candidate.strip() or "upload.epub"
     return candidate[:120]
+
+
+class _BatchSlotLease:
+    """Release a batch-build slot exactly once."""
+
+    def __init__(self, semaphore: asyncio.Semaphore) -> None:
+        self._semaphore = semaphore
+        self._released = False
+
+    def release(self) -> None:
+        """Release the slot if another cleanup path has not already done so."""
+
+        if self._released:
+            return
+        self._released = True
+        self._semaphore.release()
+
+
+def _discard_batch_archive(task: asyncio.Task[Path | None], slot: _BatchSlotLease) -> None:
+    """Delete a cancelled batch archive and release its build slot."""
+
+    try:
+        if task.cancelled():
+            return
+        try:
+            archive_path = task.result()
+        except Exception:
+            return
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+    finally:
+        slot.release()
+
+
+class _BatchArchiveResponse(FileResponse):
+    """Delete a batch archive and release its slot when delivery ends."""
+
+    def __init__(self, *args, slot: _BatchSlotLease, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._slot = slot
+
+    async def __call__(self, scope, receive, send) -> None:
+        """Deliver the archive, then remove it and release the build slot."""
+
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                Path(self.path).unlink(missing_ok=True)
+            finally:
+                self._slot.release()
+
+
+def _zip_stem(display_name: str) -> str:
+    """Return a ZIP-safe stem, prefixing Windows reserved device names."""
+
+    stem = Path(display_name).stem or "cleaned"
+    return f"_{stem}" if stem.upper() in _WINDOWS_RESERVED_STEMS else stem
+
+
+def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> Path:
+    """Create one temporary ZIP from open cleaned-output streams."""
+
+    with tempfile.NamedTemporaryFile(
+        prefix="epub-purifier-", suffix=".zip", dir=directory, delete=False
+    ) as handle:
+        path = Path(handle.name)
+    try:
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            used: set[str] = set()
+            for job, source in entries:
+                stem = _zip_stem(job.display_name)
+                name = f"{stem}.cleaned.epub"
+                suffix = 2
+                key = unicodedata.normalize("NFC", name).casefold()
+                while key in used:
+                    name = f"{stem} ({suffix}).cleaned.epub"
+                    suffix += 1
+                    key = unicodedata.normalize("NFC", name).casefold()
+                used.add(key)
+                with archive.open(name, "w") as target:
+                    shutil.copyfileobj(source, target)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def _public_result(result: BookResult) -> dict[str, object]:

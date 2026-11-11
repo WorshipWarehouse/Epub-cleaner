@@ -22,6 +22,10 @@ const fileQueue = $("file-queue");
 const inspectBtn = $("inspect-btn");
 const resetBtn = $("reset-btn");
 const cleanBtn = $("clean-btn");
+const cleanAllBtn = $("clean-all-btn");
+const batchDownload = $("batch-download");
+const batchDownloadLink = $("batch-download-link");
+const batchDownloadMeta = $("batch-download-meta");
 const status = $("status");
 
 function activeItem() {
@@ -50,6 +54,27 @@ function updateInspectButton() {
   inspectBtn.disabled = state.busy || pending === 0;
 }
 
+/** Refresh Clean all and batch ZIP controls from the current queue. */
+function updateBatchControls() {
+  const ready = state.queue.filter((item) => item.status === "ready");
+  cleanAllBtn.hidden = ready.length < 2;
+  cleanAllBtn.disabled = state.busy || ready.length < 2;
+  if (!cleanAllBtn.hidden) cleanAllBtn.textContent = `Clean ${ready.length} files`;
+
+  const cleaned = state.queue.filter((item) => item.status === "cleaned" && item.jobId);
+  if (state.busy || cleaned.length < 2) {
+    batchDownload.hidden = true;
+    batchDownloadLink.removeAttribute("href");
+    batchDownloadMeta.textContent = "";
+    return;
+  }
+  const query = new URLSearchParams({ job_ids: cleaned.map((item) => item.jobId).join(",") });
+  batchDownloadLink.href = `/api/download/batch?${query.toString()}`;
+  batchDownloadMeta.textContent = `${cleaned.length} cleaned files in one ZIP`;
+  batchDownload.hidden = false;
+}
+
+/** Render the upload queue while preserving keyboard focus and batch controls. */
 function renderQueue() {
   const focused = fileQueue.contains(document.activeElement) ? document.activeElement.dataset : null;
   const focusKey = focused ? { id: focused.queueId, action: focused.action } : null;
@@ -99,6 +124,7 @@ function renderQueue() {
     );
     replacement?.focus({ preventScroll: true });
   }
+  updateBatchControls();
 }
 
 function setStatus(message, isError = false) {
@@ -431,6 +457,71 @@ function describe(finding) {
 }
 
 // -- clean ---------------------------------------------------------------
+cleanAllBtn.addEventListener("click", () => {
+  void cleanAllReady();
+});
+
+/** Clean every ready queue item, preserving each file's review selections. */
+async function cleanAllReady() {
+  if (state.busy) return;
+  const ready = state.queue.filter((item) => item.status === "ready");
+  if (ready.length < 2) return;
+
+  state.busy = true;
+  resetBtn.disabled = true;
+  updateInspectButton();
+  renderQueue();
+  let completed = 0;
+  let failed = 0;
+  try {
+    for (const item of ready) {
+      item.status = "cleaning";
+      item.error = "";
+      renderQueue();
+      setStatus(`Cleaning ${completed + 1} of ${ready.length}: ${item.file.name}`);
+      try {
+        const response = await fetch("/api/clean", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_id: item.jobId,
+            approved: Array.from(item.selected),
+            approve_all: $("opt-approve").checked,
+            remove_remote_resources: $("opt-remote").checked,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.detail || "Cleaning failed.");
+        item.report = payload.report;
+        item.status = "cleaned";
+      } catch (error) {
+        item.status = "ready";
+        item.error = error.message;
+        failed += 1;
+      }
+      completed += 1;
+      renderQueue();
+      if (state.activeId === item.id) renderActive();
+    }
+  } finally {
+    state.busy = false;
+    resetBtn.disabled = false;
+    updateInspectButton();
+    renderQueue();
+    const firstCleaned = state.queue.find((candidate) => candidate.status === "cleaned");
+    if (firstCleaned) {
+      state.activeId = firstCleaned.id;
+    }
+    renderActive();
+    setStatus(
+      failed ? `${completed - failed} cleaned; ${failed} failed.` : `${completed} files cleaned.`,
+      failed > 0,
+    );
+    updateBatchControls();
+    resumePendingInspection();
+  }
+}
+
 cleanBtn.addEventListener("click", async () => {
   const item = activeItem();
   if (!item || !item.jobId || state.busy || item.status !== "ready") return;
@@ -534,6 +625,10 @@ resetBtn.addEventListener("click", () => {
   $("results").hidden = true;
   $("cleaned").hidden = true;
   cleanBtn.disabled = true;
+  cleanAllBtn.hidden = true;
+  batchDownload.hidden = true;
+  batchDownloadLink.removeAttribute("href");
+  batchDownloadMeta.textContent = "";
   setStatus("");
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
