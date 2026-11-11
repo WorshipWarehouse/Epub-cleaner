@@ -431,7 +431,7 @@ def create_app(
                 status_code=404,
                 detail="No cleaned file is available for every job in that batch.",
             )
-        return FileResponse(
+        return _BatchArchiveResponse(
             archive_path,
             media_type="application/zip",
             filename="epub-purifier-cleaned.zip",
@@ -634,6 +634,18 @@ def _discard_batch_archive(task: asyncio.Task[Path | None]) -> None:
         return
     if archive_path is not None:
         archive_path.unlink(missing_ok=True)
+
+
+class _BatchArchiveResponse(FileResponse):
+    """Delete a batch archive whether delivery succeeds, fails, or is cancelled."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        """Deliver the archive, then remove it in a cancellation-safe finally block."""
+
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> Path:
