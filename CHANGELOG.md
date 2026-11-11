@@ -18,9 +18,10 @@ All notable changes to this project are documented here. The format follows
 
 - Cleaned XHTML is serialized as XML with self-closing void elements and the
   XHTML namespace, so malformed HTML chapters no longer turn `<br>` and `<img>`
-  into containers with text children. Output verification now rejects malformed
-  XHTML, non-empty void elements and missing EPUB 3 nav or metadata before a
-  cleaned file is offered.
+  into containers with text children. Rebuilt EPUB 2 content documents now have
+  the XHTML 1.1 doctype and EPUB 3 documents the HTML5 doctype, and output
+  verification rejects malformed XHTML, non-empty void elements, missing EPUB 2
+  doctypes and missing EPUB 3 nav or metadata before a cleaned file is offered.
 
 ### Added
 

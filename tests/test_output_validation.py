@@ -10,7 +10,7 @@ from lxml import etree
 from epub_purifier import clean_epub
 from epub_purifier.repackage import verify_epub
 
-from .conftest import CHAPTER_TWO, CONTAINER, NAV, build_epub, simple_book
+from .conftest import CHAPTER_TWO, CONTAINER, NAV, build_epub, opf_package, simple_book
 
 XHTML = "http://www.w3.org/1999/xhtml"
 
@@ -32,6 +32,7 @@ def test_malformed_html_is_rewritten_as_valid_xhtml():
 
     output = _content(result.data)
     assert output.startswith(b'<?xml version="1.0" encoding="utf-8"?>')
+    assert b"<!DOCTYPE html>" in output
     assert f'xmlns="{XHTML}"'.encode() in output
     assert b"<br/>" in output
     assert b"</br>" not in output
@@ -40,6 +41,54 @@ def test_malformed_html_is_rewritten_as_valid_xhtml():
     root = etree.fromstring(output)  # noqa: S320 - output produced by this test
     assert root.tag == f"{{{XHTML}}}html"
     assert verify_epub(result.data) == []
+
+
+def test_epub2_content_gets_an_xhtml_11_doctype():
+    chapter = (
+        "<html><head><title>One</title></head><body>"
+        "<p>Ordinary prose.</p>"
+        "<p>Downloaded from OceanofPDF.com - free ebooks.</p>"
+        "</body></html>"
+    )
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", chapter),
+        ]
+    )
+
+    result = clean_epub(data)
+    assert result.data is not None
+    output = _content(result.data)
+    assert b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"' in output
+    assert b'"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"' in output
+    assert verify_epub(result.data) == []
+
+
+def test_verifier_rejects_epub2_content_without_a_doctype():
+    opf = opf_package(
+        manifest='<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+        spine='<itemref idref="ch1"/>',
+        version="2.0",
+    )
+    data = build_epub(
+        [
+            ("META-INF/container.xml", CONTAINER),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/nav.xhtml", NAV),
+            ("OEBPS/chapter1.xhtml", CHAPTER_TWO),
+        ]
+    )
+
+    problems = verify_epub(data)
+    assert any("no XHTML doctype" in problem for problem in problems)
 
 
 def test_verifier_rejects_non_empty_xhtml_void_elements():

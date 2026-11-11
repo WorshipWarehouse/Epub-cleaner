@@ -18,7 +18,9 @@ from .config import PurifierConfig
 from .detectors.context import describe_element
 from .detectors.styles import apply_css_edits
 from .markup import (
+    HTML5_DOCTYPE,
     STRUCTURAL_TAGS,
+    XHTML_11_DOCTYPE,
     clean_string,
     is_empty_container,
     local_name,
@@ -204,12 +206,29 @@ def clean_book(
         changed.add(package.entry)
 
     # -- serialize --------------------------------------------------------
+    is_epub2 = validation.version.startswith("2.")
+    doctype = XHTML_11_DOCTYPE if is_epub2 else HTML5_DOCTYPE
+    if is_epub2:
+        # XHTML 1.1 requires a doctype even when a document needed no content
+        # edit, so rebuild every content document rather than only changed ones.
+        for entry in validation.markup_entries:
+            resource = ctx.resources.get(entry)
+            if (
+                resource is not None
+                and resource.soup is not None
+                and resource.soup.find("html") is not None
+            ):
+                changed.add(entry)
+
     payload: dict[str, bytes] = {}
     for entry in changed:
         resource = ctx.resources.get(entry)
         if resource is not None and resource.soup is not None:
             payload[entry] = serialize_markup(
-                resource.soup, resource.parser, xml_declaration=resource.xml_declaration
+                resource.soup,
+                resource.parser,
+                xml_declaration=resource.xml_declaration,
+                doctype=doctype,
             )
         elif entry in rewrites:
             payload[entry] = rewrites[entry]

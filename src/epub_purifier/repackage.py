@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import posixpath
+import re
 import zipfile
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -130,8 +131,13 @@ def _check_content_documents(archive: SafeArchive, package: PackageDocument, pro
             continue
         if not archive.exists(item.path):
             continue
+        raw = archive.read(item.path)
+        if package.version.startswith("2.") and not re.search(
+            rb"<!DOCTYPE\s+html\b", raw[:4096], re.IGNORECASE
+        ):
+            problems.append(f"EPUB 2 content document has no XHTML doctype: {item.href}")
         try:
-            root = _parse_xml(archive.read(item.path))
+            root = _parse_xml(raw)
         except Exception as exc:  # noqa: BLE001 - report any reader/parser failure
             problems.append(f"content document is not well-formed XML: {item.href} ({exc})")
             continue

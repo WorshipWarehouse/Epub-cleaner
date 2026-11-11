@@ -61,6 +61,11 @@ _DOCTYPE = re.compile(r"<!DOCTYPE\b[^>]*(?:\[[^\]]*\]|SYSTEM|PUBLIC)", re.IGNORE
 _DOCTYPE_FULL = re.compile(r"<!DOCTYPE\b(?:[^>\[]|\[[^\]]*\])*>", re.IGNORECASE | re.DOTALL)
 _XML_DECL = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
 _XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+XHTML_11_DOCTYPE = (
+    '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+    '"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
+)
+HTML5_DOCTYPE = "<!DOCTYPE html>"
 
 
 def _is_well_formed_xml(text: str) -> bool:
@@ -111,12 +116,20 @@ def has_entity_declarations(text: str) -> bool:
     return bool(_ENTITY_DECL.search(text))
 
 
-def serialize_markup(soup: BeautifulSoup, parser: str, *, xml_declaration: bool) -> bytes:
+def serialize_markup(
+    soup: BeautifulSoup,
+    parser: str,
+    *,
+    xml_declaration: bool,
+    doctype: str | None = None,
+) -> bytes:
     """Serialize a document as XHTML when its root is ``html``.
 
     The tolerant HTML parser is used for malformed input. Its tree is written
     with XML self-closing tags, so ``<br>`` and ``<img>`` become ``<br/>`` and
-    ``<img/>`` rather than containers with text children.
+    ``<img/>`` rather than containers with text children. XHTML content can be
+    given the doctype required by its EPUB version; other XML documents keep
+    their existing preamble.
     """
 
     html_root = soup.find("html")
@@ -126,8 +139,11 @@ def serialize_markup(soup: BeautifulSoup, parser: str, *, xml_declaration: bool)
             html_root["xmlns"] = _XHTML_NAMESPACE
 
     text = _XML_DECL.sub("", soup.decode(formatter=XMLFormatter.REGISTRY["minimal"]), count=1)
+    declaration = '<?xml version="1.0" encoding="utf-8"?>\n'
     if parser == "html" or xml_declaration or html_root is not None:
-        text = '<?xml version="1.0" encoding="utf-8"?>\n' + text
+        text = declaration + text
+    if doctype is not None and html_root is not None:
+        text = declaration + f"{doctype}\n" + text.removeprefix(declaration)
     return text.encode("utf-8")
 
 
