@@ -55,6 +55,7 @@ from ..transfer import (
 JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
 MAX_BATCH_DOWNLOADS = 10
+MAX_CONCURRENT_BATCH_DOWNLOADS = 2
 RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_RATE_LIMIT", "20"))
 SEARCH_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_SEARCH_RATE_LIMIT", "30"))
 TRANSFER_RATE_LIMIT = int(os.environ.get("EPUB_PURIFIER_TRANSFER_RATE_LIMIT", "10"))
@@ -177,6 +178,7 @@ def create_app(
     source_list = list(sources) if sources is not None else default_sources()
     transfers = transfer or TransferService(sources=source_list)
     app.state.jobs = store
+    app.state.batch_slots = asyncio.Semaphore(MAX_CONCURRENT_BATCH_DOWNLOADS)
     app.state.rate_limiter = RateLimiter()
     app.state.search_limiter = RateLimiter(limit=SEARCH_RATE_LIMIT)
     app.state.transfer_limiter = RateLimiter(limit=TRANSFER_RATE_LIMIT)
@@ -416,7 +418,14 @@ def create_app(
                 status_code=400,
                 detail=f"Choose between 1 and {MAX_BATCH_DOWNLOADS} cleaned files.",
             )
-        archive_path = await asyncio.to_thread(store.batch_zip, ids)
+        await app.state.batch_slots.acquire()
+        task = asyncio.create_task(asyncio.to_thread(store.batch_zip, ids))
+        task.add_done_callback(lambda _: app.state.batch_slots.release())
+        try:
+            archive_path = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            task.add_done_callback(_discard_batch_archive)
+            raise
         if archive_path is None:
             raise HTTPException(
                 status_code=404,
@@ -509,8 +518,8 @@ class JobStore:
 
         output = job.directory / "cleaned.epub"
         temporary = job.directory / f"cleaned-{uuid.uuid4().hex}.epub"
-        temporary.write_bytes(data)
         try:
+            temporary.write_bytes(data)
             with self._lock:
                 os.replace(temporary, output)
                 job.output = output
@@ -535,7 +544,7 @@ class JobStore:
                     handle = job.output.open("rb")
                     job.pinned += 1
                     handles.append((job, handle))
-            return _zip_cleaned_jobs(handles)
+            return _zip_cleaned_jobs(handles, self.root)
         finally:
             for _, handle in handles:
                 handle.close()
@@ -614,10 +623,25 @@ def _safe_display_name(name: str | None) -> str:
     return candidate[:120]
 
 
-def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]]) -> Path:
+def _discard_batch_archive(task: asyncio.Task[Path | None]) -> None:
+    """Delete a finished batch archive after its request was cancelled."""
+
+    if task.cancelled():
+        return
+    try:
+        archive_path = task.result()
+    except Exception:
+        return
+    if archive_path is not None:
+        archive_path.unlink(missing_ok=True)
+
+
+def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]], directory: Path) -> Path:
     """Create one temporary ZIP from open cleaned-output streams."""
 
-    with tempfile.NamedTemporaryFile(prefix="epub-purifier-", suffix=".zip", delete=False) as handle:
+    with tempfile.NamedTemporaryFile(
+        prefix="epub-purifier-", suffix=".zip", dir=directory, delete=False
+    ) as handle:
         path = Path(handle.name)
     try:
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -626,10 +650,10 @@ def _zip_cleaned_jobs(entries: list[tuple[Job, BinaryIO]]) -> Path:
                 stem = Path(job.display_name).stem or "cleaned"
                 name = f"{stem}.cleaned.epub"
                 suffix = 2
-                while name in used:
+                while name.casefold() in used:
                     name = f"{stem} ({suffix}).cleaned.epub"
                     suffix += 1
-                used.add(name)
+                used.add(name.casefold())
                 with archive.open(name, "w") as target:
                     shutil.copyfileobj(source, target)
     except Exception:

@@ -96,6 +96,32 @@ def test_batch_download_rejects_unknown_jobs(client):
     assert response.status_code == 404
 
 
+def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_epub):
+    """Names that differ only by case still produce distinct ZIP entries."""
+
+    job_ids = []
+    for name in ("Book.epub", "book.epub"):
+        inspected = client.post(
+            "/api/inspect",
+            files={"file": (name, sample_epub, "application/epub+zip")},
+        )
+        assert inspected.status_code == 200
+        job_id = inspected.json()["job_id"]
+        cleaned = client.post("/api/clean", json={"job_id": job_id, "approve_all": True})
+        assert cleaned.status_code == 200
+        job_ids.append(job_id)
+
+    response = client.get("/api/download/batch", params={"job_ids": ",".join(job_ids)})
+    assert response.status_code == 200
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert len(names) == 2
+        assert len({name.casefold() for name in names}) == 2
+        for name in names:
+            assert archive.read(name)[:2] == b"PK"
+
+
 def test_rejects_non_epub(client):
     response = client.post(
         "/api/inspect", files={"file": ("notes.epub", b"not a zip", "application/epub+zip")}
