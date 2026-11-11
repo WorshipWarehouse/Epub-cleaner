@@ -27,6 +27,7 @@ from .markup import (
 )
 from .models import Mutation, Remediation, RemovedItem, Severity
 from .opf import (
+    has_valid_modified_timestamp,
     prune_empty_sections,
     prune_guide,
     prune_spine,
@@ -197,7 +198,7 @@ def clean_book(
 
     if (
         config.update_modified_timestamp
-        and changed
+        and (changed or not has_valid_modified_timestamp(package))
         and set_modified_timestamp(package, utc_timestamp())
     ):
         changed.add(package.entry)

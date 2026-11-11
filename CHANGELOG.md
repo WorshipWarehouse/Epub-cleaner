@@ -14,8 +14,19 @@ All notable changes to this project are documented here. The format follows
   remains as the adapter for operator-added external sources, and the OceanofPDF
   branding patterns stay in the cleaner, where they belong.
 
+### Fixed
+
+- Cleaned XHTML is serialized as XML with self-closing void elements and the
+  XHTML namespace, so malformed HTML chapters no longer turn `<br>` and `<img>`
+  into containers with text children. Output verification now rejects malformed
+  XHTML, non-empty void elements and missing EPUB 3 nav or metadata before a
+  cleaned file is offered.
+
 ### Added
 
+- Multi-file upload queue: the web UI accepts up to ten EPUBs at once,
+  inspects them sequentially through the existing single-file endpoint, and
+  keeps each report, review selection and cleaned download separate.
 - Server-defined extra sources: a JSON (or TOML) file named by
   `EPUB_PURIFIER_EXTRA_SOURCES`, default `sources.json`, adds catalogues to search
   without patching the package. `kind: "link"` entries are external listings that

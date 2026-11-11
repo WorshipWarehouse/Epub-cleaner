@@ -12,7 +12,9 @@ import re
 from collections.abc import Iterable, Iterator
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
+from bs4.element import Comment, Doctype, NavigableString, Tag
+from bs4.formatter import XMLFormatter
+from lxml import etree
 
 #: Tags that hold a paragraph-level run of content.
 BLOCK_TAGS = frozenset(
@@ -58,6 +60,23 @@ _ENTITY_DECL = re.compile(r"<!ENTITY\b", re.IGNORECASE)
 _DOCTYPE = re.compile(r"<!DOCTYPE\b[^>]*(?:\[[^\]]*\]|SYSTEM|PUBLIC)", re.IGNORECASE | re.DOTALL)
 _DOCTYPE_FULL = re.compile(r"<!DOCTYPE\b(?:[^>\[]|\[[^\]]*\])*>", re.IGNORECASE | re.DOTALL)
 _XML_DECL = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
+_XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
+
+def _is_well_formed_xml(text: str) -> bool:
+    """Use a non-recovering parser: BeautifulSoup's XML builder repairs."""
+
+    parser = etree.XMLParser(
+        recover=False,
+        resolve_entities=False,
+        no_network=True,
+        load_dtd=False,
+    )
+    try:
+        etree.fromstring(text.encode("utf-8"), parser)
+    except (etree.XMLSyntaxError, ValueError, UnicodeEncodeError, OSError):
+        return False
+    return True
 
 
 def parse_markup(text: str, *, force_html: bool = False) -> tuple[BeautifulSoup, str]:
@@ -70,7 +89,7 @@ def parse_markup(text: str, *, force_html: bool = False) -> tuple[BeautifulSoup,
     if has_entity_declarations(text):
         text = _DOCTYPE_FULL.sub("", text)
 
-    if not force_html:
+    if not force_html and _is_well_formed_xml(text):
         try:
             soup = BeautifulSoup(text, "lxml-xml")
         except Exception:  # pragma: no cover - lxml rarely raises here
@@ -93,12 +112,33 @@ def has_entity_declarations(text: str) -> bool:
 
 
 def serialize_markup(soup: BeautifulSoup, parser: str, *, xml_declaration: bool) -> bytes:
-    """Serialize a document back to bytes, preserving the XML declaration."""
+    """Serialize a document as XHTML when its root is ``html``.
 
-    text = str(soup)
-    if parser == "xml" and xml_declaration and not _XML_DECL.match(text):
+    The tolerant HTML parser is used for malformed input. Its tree is written
+    with XML self-closing tags, so ``<br>`` and ``<img>`` become ``<br/>`` and
+    ``<img/>`` rather than containers with text children.
+    """
+
+    html_root = soup.find("html")
+    if html_root is not None:
+        _strip_xhtml_preamble(soup)
+        if not html_root.get("xmlns"):
+            html_root["xmlns"] = _XHTML_NAMESPACE
+
+    text = _XML_DECL.sub("", soup.decode(formatter=XMLFormatter.REGISTRY["minimal"]), count=1)
+    if parser == "html" or xml_declaration or html_root is not None:
         text = '<?xml version="1.0" encoding="utf-8"?>\n' + text
     return text.encode("utf-8")
+
+
+def _strip_xhtml_preamble(soup: BeautifulSoup) -> None:
+    """Remove HTML doctypes and the declaration comment the HTML parser makes."""
+
+    for node in soup.find_all(string=True):
+        if isinstance(node, Doctype) or (
+            isinstance(node, Comment) and node.strip().lower().startswith("?xml")
+        ):
+            node.extract()
 
 
 def normalize_space(value: str | None) -> str:

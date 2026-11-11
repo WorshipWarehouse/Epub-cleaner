@@ -119,7 +119,7 @@ Exit codes: `0` success, `1` findings above `--fail-on`, `2` usage/config error,
 epub-purifier-web          # http://127.0.0.1:8000
 ```
 
-Upload → review the report → tick any ambiguous items → clean → download.
+Upload one or more EPUBs → review each queued report → tick any ambiguous items → clean → download each file independently.
 The server binds to loopback by default (`EPUB_PURIFIER_HOST`,
 `EPUB_PURIFIER_PORT`), keeps uploads in a private temp directory, deletes each
 job after 30 minutes (`EPUB_PURIFIER_JOB_TTL`), and serves a strict

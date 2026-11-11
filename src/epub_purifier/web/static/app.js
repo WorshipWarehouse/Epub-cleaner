@@ -3,23 +3,103 @@
 // All values from the server are rendered with textContent (never innerHTML),
 // because a malicious EPUB can put arbitrary strings in its metadata.
 
+const MAX_BATCH_FILES = 10;
+const INSPECT_TIMEOUT_MS = 60_000;
+let queueSeq = 0;
+
 const state = {
-  file: null,
-  jobId: null,
-  report: null,
-  selected: new Set(),
+  queue: [],
+  activeId: null,
   busy: false,
+  inspectPending: false,
 };
 
 const $ = (id) => document.getElementById(id);
 
 const fileInput = $("file-input");
 const dropzone = $("dropzone");
-const fileName = $("file-name");
+const fileQueue = $("file-queue");
 const inspectBtn = $("inspect-btn");
 const resetBtn = $("reset-btn");
 const cleanBtn = $("clean-btn");
 const status = $("status");
+
+function activeItem() {
+  return state.queue.find((item) => item.id === state.activeId) || null;
+}
+
+function pendingCount() {
+  return state.queue.filter((item) => item.status === "queued").length;
+}
+
+function statusLabel(item) {
+  switch (item.status) {
+    case "queued": return "waiting";
+    case "inspecting": return "inspecting…";
+    case "ready": return "report ready";
+    case "cleaning": return "cleaning…";
+    case "cleaned": return "cleaned";
+    case "error": return "failed";
+    default: return item.status;
+  }
+}
+
+function updateInspectButton() {
+  const pending = pendingCount();
+  inspectBtn.textContent = pending > 1 ? `Inspect ${pending} files` : "Inspect file";
+  inspectBtn.disabled = state.busy || pending === 0;
+}
+
+function renderQueue() {
+  const focused = fileQueue.contains(document.activeElement) ? document.activeElement.dataset : null;
+  const focusKey = focused ? { id: focused.queueId, action: focused.action } : null;
+  fileQueue.replaceChildren();
+  fileQueue.hidden = state.queue.length === 0;
+  for (const item of state.queue) {
+    const row = make("li", {
+      class: `queue-item${item.id === state.activeId ? " active" : ""}`,
+      dataset: { status: item.status },
+    });
+    const select = make("button", { type: "button", class: "queue-select", dataset: { queueId: item.id, action: "select" } }, [
+      make("span", { class: "queue-name", text: item.file.name }),
+      make("span", {
+        class: "queue-meta",
+        text: `${formatBytes(item.file.size)} · ${statusLabel(item)}`,
+      }),
+    ]);
+    select.addEventListener("click", () => selectItem(item.id));
+    row.append(select);
+    if (item.status === "error") {
+      for (const action of ["Retry", "Remove"]) {
+        const button = make("button", {
+          type: "button", text: action,
+          dataset: { queueId: item.id, action: action.toLowerCase() },
+        });
+        button.addEventListener("click", () => {
+          if (action === "Retry") {
+            item.status = "queued";
+            item.error = "";
+          } else {
+            state.queue = state.queue.filter((candidate) => candidate.id !== item.id);
+            if (state.activeId === item.id) state.activeId = state.queue[0]?.id ?? null;
+          }
+          renderQueue();
+          renderActive();
+          updateInspectButton();
+        });
+        row.append(button);
+      }
+    }
+    if (item.error) row.append(make("p", { class: "queue-error", text: item.error }));
+    fileQueue.append(row);
+  }
+  if (focusKey) {
+    const replacement = Array.from(fileQueue.querySelectorAll("button")).find(
+      (button) => button.dataset.queueId === focusKey.id && button.dataset.action === focusKey.action,
+    );
+    replacement?.focus({ preventScroll: true });
+  }
+}
 
 function setStatus(message, isError = false) {
   status.textContent = message || "";
@@ -42,18 +122,160 @@ function make(tag, props = {}, children = []) {
 }
 
 // -- file selection ------------------------------------------------------
-function chooseFile(file) {
-  if (!file) return false;
-  if (!file.name.toLowerCase().endsWith(".epub")) {
-    setStatus("That is not an .epub file. Pick the book you want to inspect.", true);
-    return false;
+function chooseFiles(fileList) {
+  const incoming = Array.from(fileList || []);
+  if (!incoming.length) return 0;
+
+  const epubFiles = incoming.filter((file) => file.name.toLowerCase().endsWith(".epub"));
+  let skipped = incoming.length - epubFiles.length;
+  if (!epubFiles.length) {
+    setStatus("Those are not .epub files. Pick the books you want to inspect.", true);
+    return 0;
   }
-  state.file = file;
-  fileName.textContent = `${file.name} · ${formatBytes(file.size)}`;
-  fileName.hidden = false;
-  inspectBtn.disabled = false;
-  setStatus("");
-  return true;
+
+  let added = 0;
+  for (const file of epubFiles) {
+    if (state.queue.length >= MAX_BATCH_FILES) {
+      skipped += 1;
+      continue;
+    }
+    const duplicate = state.queue.some(
+      (item) =>
+        item.file.name === file.name &&
+        item.file.size === file.size &&
+        item.file.lastModified === file.lastModified,
+    );
+    if (duplicate) {
+      skipped += 1;
+      continue;
+    }
+    state.queue.push({
+      id: (queueSeq += 1),
+      file,
+      status: "queued",
+      jobId: null,
+      report: null,
+      reviewable: [],
+      selected: new Set(),
+      error: "",
+    });
+    added += 1;
+  }
+
+  if (added) {
+    state.activeId = state.queue[state.queue.length - added].id;
+    renderActive();
+    resetBtn.hidden = false;
+    setStatus(skipped ? `${added} EPUB(s) queued; ${skipped} file(s) skipped.` : "");
+  } else {
+    setStatus(
+      state.queue.length >= MAX_BATCH_FILES
+        ? `You can queue up to ${MAX_BATCH_FILES} EPUBs at a time.`
+        : "Those files are already in the queue.",
+      true,
+    );
+  }
+  renderQueue();
+  updateInspectButton();
+  return added;
+}
+
+function selectItem(itemId) {
+  const item = state.queue.find((candidate) => candidate.id === itemId);
+  if (!item) return;
+  state.activeId = item.id;
+  renderQueue();
+  renderActive();
+}
+
+function renderActive() {
+  const item = activeItem();
+  if (!item) {
+    $("results").hidden = true;
+    $("cleaned").hidden = true;
+    cleanBtn.disabled = true;
+    return;
+  }
+  if (item.report && (item.status === "ready" || item.status === "cleaned")) {
+    if (item.status === "cleaned") renderCleaned(item.report);
+    else renderReport(item);
+    cleanBtn.disabled = item.status !== "ready" || state.busy;
+    if (item.error) setStatus(item.error, true);
+    else setStatus("");
+    return;
+  }
+  $("results").hidden = true;
+  $("cleaned").hidden = true;
+  cleanBtn.disabled = true;
+  if (item.error) setStatus(item.error, true);
+  else if (item.status === "inspecting") setStatus(`Inspecting ${item.file.name}…`);
+  else setStatus("");
+}
+
+function resumePendingInspection() {
+  if (state.inspectPending && !state.busy) {
+    state.inspectPending = false;
+    void inspectQueue();
+  }
+}
+
+async function inspectQueue() {
+  if (state.busy) {
+    state.inspectPending = true;
+    return;
+  }
+  const pending = state.queue.filter((item) => item.status === "queued");
+  if (!pending.length) return;
+
+  state.busy = true;
+  resetBtn.disabled = true;
+  updateInspectButton();
+  let completed = 0;
+  try {
+    for (const item of pending) {
+      item.status = "inspecting";
+      item.error = "";
+      renderQueue();
+      setStatus(`Inspecting ${completed + 1} of ${pending.length}: ${item.file.name}`);
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), INSPECT_TIMEOUT_MS);
+      try {
+        const body = new FormData();
+        body.append("file", item.file);
+        const response = await fetch("/api/inspect", { method: "POST", body, signal: controller.signal });
+        const payload = await response.json().catch((error) => {
+          if (controller.signal.aborted) throw error;
+          return {};
+        });
+        if (!response.ok) throw new Error(payload.detail || "The file could not be inspected.");
+
+        item.jobId = payload.job_id;
+        item.report = payload.report;
+        item.reviewable = payload.reviewable || [];
+        item.status = "ready";
+      } catch (error) {
+        item.status = "error";
+        item.error = controller.signal.aborted ? "Inspection timed out. Retry this file." : error.message;
+      } finally {
+        clearTimeout(deadline);
+      }
+      completed += 1;
+      renderQueue();
+      if (state.activeId === item.id) renderActive();
+      updateInspectButton();
+    }
+    const failed = pending.filter((item) => item.status === "error").length;
+    if (failed) setStatus(`${completed - failed} inspected; ${failed} failed.`, true);
+    else setStatus(pending.length === 1 ? "" : `${pending.length} files inspected.`);
+  } finally {
+    state.busy = false;
+    resetBtn.disabled = false;
+    updateInspectButton();
+    renderQueue();
+    const current = activeItem();
+    cleanBtn.disabled = !current || current.status !== "ready";
+    resumePendingInspection();
+  }
 }
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -63,7 +285,10 @@ dropzone.addEventListener("keydown", (event) => {
     fileInput.click();
   }
 });
-fileInput.addEventListener("change", () => chooseFile(fileInput.files[0]));
+fileInput.addEventListener("change", () => {
+  chooseFiles(fileInput.files);
+  fileInput.value = "";
+});
 
 // A downloaded book can be dropped anywhere on the page, not only on the
 // dashed box. Only file drags are intercepted, so dropping selected text or a
@@ -105,41 +330,20 @@ window.addEventListener("drop", (event) => {
   event.preventDefault();
   dragDepth = 0;
   setDragActive(false);
-  const file = event.dataTransfer.files[0];
-  // A dropped book goes straight to inspection: one drag from the download
-  // shelf to a finished report.
-  if (chooseFile(file)) inspectBtn.click();
+  const files = Array.from(event.dataTransfer.files || []);
+  // Dropped books go straight to inspection: one drag from the download
+  // shelf to finished reports for every EPUB in the batch.
+  if (chooseFiles(files)) void inspectQueue();
 });
 
 // -- inspect -------------------------------------------------------------
-inspectBtn.addEventListener("click", async () => {
-  if (!state.file || state.busy) return;
-  state.busy = true;
-  inspectBtn.disabled = true;
-  setStatus("Reading the archive and scanning every resource…");
-
-  const body = new FormData();
-  body.append("file", state.file);
-
-  try {
-    const response = await fetch("/api/inspect", { method: "POST", body });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "The file could not be inspected.");
-
-    state.jobId = payload.job_id;
-    state.report = payload.report;
-    state.selected = new Set();
-    renderReport(payload.report, payload.reviewable || []);
-    setStatus("");
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    state.busy = false;
-    inspectBtn.disabled = false;
-  }
+inspectBtn.addEventListener("click", () => {
+  void inspectQueue();
 });
 
-function renderReport(report, reviewable) {
+function renderReport(item) {
+  const report = item.report;
+  const reviewable = item.reviewable;
   $("results").hidden = false;
   $("cleaned").hidden = true;
   resetBtn.hidden = false;
@@ -177,9 +381,10 @@ function renderReport(report, reviewable) {
     reviewBlock.hidden = false;
     for (const finding of reviewable) {
       const checkbox = make("input", { type: "checkbox", value: finding.id });
+      checkbox.checked = item.selected.has(finding.id);
       checkbox.addEventListener("change", () => {
-        if (checkbox.checked) state.selected.add(finding.id);
-        else state.selected.delete(finding.id);
+        if (checkbox.checked) item.selected.add(finding.id);
+        else item.selected.delete(finding.id);
       });
       reviewList.append(
         make("li", { class: `review-item ${finding.severity}` }, [
@@ -198,7 +403,7 @@ function renderReport(report, reviewable) {
     reviewBlock.hidden = true;
   }
 
-  cleanBtn.disabled = false;
+  cleanBtn.disabled = item.status !== "ready" || state.busy;
   $("results").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -227,18 +432,24 @@ function describe(finding) {
 
 // -- clean ---------------------------------------------------------------
 cleanBtn.addEventListener("click", async () => {
-  if (!state.jobId || state.busy) return;
+  const item = activeItem();
+  if (!item || !item.jobId || state.busy || item.status !== "ready") return;
   state.busy = true;
+  item.status = "cleaning";
+  item.error = "";
   cleanBtn.disabled = true;
-  setStatus("Rebuilding the book…");
+  renderActive();
+  updateInspectButton();
+  renderQueue();
+  setStatus(`Rebuilding ${item.file.name}…`);
 
   try {
     const response = await fetch("/api/clean", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        job_id: state.jobId,
-        approved: Array.from(state.selected),
+        job_id: item.jobId,
+        approved: Array.from(item.selected),
         approve_all: $("opt-approve").checked,
         remove_remote_resources: $("opt-remote").checked,
       }),
@@ -246,17 +457,29 @@ cleanBtn.addEventListener("click", async () => {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || "Cleaning failed.");
 
-    renderCleaned(payload.report);
-    setStatus("");
+    item.report = payload.report;
+    item.status = "cleaned";
   } catch (error) {
-    setStatus(error.message, true);
+    item.status = "ready";
+    item.error = error.message;
   } finally {
     state.busy = false;
-    cleanBtn.disabled = false;
+    renderQueue();
+    const current = activeItem();
+    if (current && current.id === item.id) {
+      renderActive();
+    } else {
+      // A background file finished while another file was selected. Its
+      // result stays on that queue row; do not replace the active report.
+      cleanBtn.disabled = !current || current.status !== "ready";
+    }
+    updateInspectButton();
+    resumePendingInspection();
   }
 });
 
 function renderCleaned(report) {
+  $("results").hidden = true;
   $("cleaned").hidden = false;
   $("cleaned-summary").textContent = report.summary.verdict;
 
@@ -299,16 +522,18 @@ function renderCleaned(report) {
 
 // -- reset ---------------------------------------------------------------
 resetBtn.addEventListener("click", () => {
-  state.file = null;
-  state.jobId = null;
-  state.report = null;
-  state.selected = new Set();
+  if (state.busy) return;
+  state.queue = [];
+  state.activeId = null;
   fileInput.value = "";
-  fileName.hidden = true;
+  fileQueue.replaceChildren();
+  fileQueue.hidden = true;
   inspectBtn.disabled = true;
+  inspectBtn.textContent = "Inspect file";
   resetBtn.hidden = true;
   $("results").hidden = true;
   $("cleaned").hidden = true;
+  cleanBtn.disabled = true;
   setStatus("");
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
@@ -521,6 +746,7 @@ if (searchForm) {
     } finally {
       state.busy = false;
       button.disabled = false;
+      resumePendingInspection();
     }
   }
 
@@ -637,6 +863,7 @@ if (searchForm) {
       setSearchStatus(error.message, true);
     } finally {
       state.busy = false;
+      resumePendingInspection();
     }
   });
 }
