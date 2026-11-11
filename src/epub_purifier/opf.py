@@ -10,6 +10,7 @@ import posixpath
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
@@ -227,7 +228,7 @@ def set_modified_timestamp(pkg: PackageDocument, timestamp: str) -> bool:
         return False
     for meta in iter_local(pkg.metadata, "meta"):
         prop = str(meta.get("property") or "").lower()
-        if prop == "dcterms:modified":
+        if prop == "dcterms:modified" and not meta.has_attr("refines"):
             _set_meta_value(meta, timestamp)
             return True
     if pkg.version.startswith("2."):
@@ -252,23 +253,37 @@ _MODIFIED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def modified_timestamps(pkg: PackageDocument) -> list[str]:
-    """Return the dcterms:modified values in package order."""
+    """Return unrefined publication timestamps, including empty values, in package order."""
 
     if pkg.metadata is None:
         return []
     values: list[str] = []
     for meta in iter_local(pkg.metadata, "meta"):
-        if str(meta.get("property") or "").lower() != "dcterms:modified":
+        if (
+            str(meta.get("property") or "").lower() != "dcterms:modified"
+            or meta.has_attr("refines")
+        ):
             continue
         value = (meta.get_text() or "").strip()
-        if value:
-            values.append(value)
+        values.append(value)
     return values
+
+
+def is_valid_modified_timestamp(value: str) -> bool:
+    """Require the EPUB UTC spelling and valid calendar/time fields."""
+
+    if not _MODIFIED_RE.fullmatch(value):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
 
 
 def has_valid_modified_timestamp(pkg: PackageDocument) -> bool:
     values = modified_timestamps(pkg)
-    return len(values) == 1 and bool(_MODIFIED_RE.fullmatch(values[0]))
+    return len(values) == 1 and is_valid_modified_timestamp(values[0])
 
 
 def manifest_paths(pkg: PackageDocument) -> dict[str, str]:

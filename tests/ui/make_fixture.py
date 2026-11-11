@@ -1,6 +1,6 @@
 """Write the branded EPUB used by the browser drop test.
 
-Run from the repository root by ``tests/ui/serve.sh``; kept as a separate script
+Run from the repository root by Playwright global setup; kept as a separate script
 so the Playwright test only has to read one file.
 """
 

@@ -100,3 +100,75 @@ def test_verifier_requires_a_valid_modified_timestamp():
     )
     problems = verify_epub(data)
     assert any("dcterms:modified" in problem for problem in problems)
+
+
+def _rewrite(data, name, transform):
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        return build_epub([
+            (entry, transform(archive.read(entry)) if entry == name else archive.read(entry))
+            for entry in archive.namelist() if entry != "mimetype"
+        ])
+
+
+def test_html_style_text_survives_xml_serialization():
+    from epub_purifier.markup import parse_markup, serialize_markup
+
+    css = 'p::after { content: "A & B < C"; }'
+    soup, parser = parse_markup(f"<html><head><style>{css}</style></head><body><br></body></html>")
+    root = etree.fromstring(serialize_markup(soup, parser, xml_declaration=True))
+    assert root.find(f"{{{XHTML}}}head/{{{XHTML}}}style").text == css
+
+
+def test_refined_modified_timestamp_is_preserved():
+    from bs4 import BeautifulSoup
+
+    from epub_purifier.opf import (
+        PackageDocument,
+        has_valid_modified_timestamp,
+        modified_timestamps,
+        set_modified_timestamp,
+    )
+
+    data = _rewrite(simple_book(CHAPTER_TWO), "OEBPS/content.opf", lambda value: value.replace(
+        b'<meta property="dcterms:modified">',
+        b'<meta property="dcterms:modified" refines="#bookid">1999-01-01T00:00:00Z</meta>'
+        b'<meta property="dcterms:modified">',
+    ))
+    assert verify_epub(data) == []
+    pkg = PackageDocument("OEBPS/content.opf", BeautifulSoup(_content(data, "OEBPS/content.opf"), "xml"), "3.0")
+    assert has_valid_modified_timestamp(pkg)
+    set_modified_timestamp(pkg, "2024-02-29T12:30:59Z")
+    assert modified_timestamps(pkg) == ["2024-02-29T12:30:59Z"]
+    assert pkg.metadata.find("meta", refines="#bookid").text == "1999-01-01T00:00:00Z"
+
+
+def test_timestamp_calendar_validation_is_shared():
+    from bs4 import BeautifulSoup
+
+    from epub_purifier.opf import PackageDocument, has_valid_modified_timestamp
+
+    for value in ["2023-02-29T00:00:00Z", "2024-13-01T00:00:00Z", "2024-01-01T24:00:00Z", "2024-01-01T00:60:00Z", "2024-01-01T00:00:60Z", "0000-01-01T00:00:00Z", "2024-1-01T00:00:00Z", ""]:
+        data = _rewrite(simple_book(CHAPTER_TWO), "OEBPS/content.opf", lambda content: content.replace(b"2020-01-01T00:00:00Z", value.encode()))
+        pkg = PackageDocument("OEBPS/content.opf", BeautifulSoup(_content(data, "OEBPS/content.opf"), "xml"), "3.0")
+        assert not has_valid_modified_timestamp(pkg), value
+        assert any("dcterms:modified" in problem for problem in verify_epub(data)), value
+
+
+def test_missing_ordinary_content_respects_reference_flag():
+    data = _rewrite(simple_book(CHAPTER_TWO), "OEBPS/content.opf", lambda value: value.replace(b'href="chapter1.xhtml"', b'href="absent.xhtml"'))
+    assert verify_epub(data) == []
+    assert any("absent.xhtml" in problem for problem in verify_epub(data, check_references=True))
+    data = _rewrite(data, "OEBPS/content.opf", lambda value: value.replace(b'href="nav.xhtml"', b'href="absent-nav.xhtml"'))
+    assert any("navigation document missing" in problem for problem in verify_epub(data))
+
+
+def test_navigation_requires_namespaced_toc_token():
+    for attribute, valid in [
+        ('epub:type="landmarks toc"', True),
+        ('epub:type="landmarks"', False),
+        ('type="toc"', False),
+        ('epub:type="toc-other"', False),
+    ]:
+        data = _rewrite(simple_book(CHAPTER_TWO), "OEBPS/nav.xhtml", lambda value: value.replace(b'epub:type="toc"', attribute.encode()))
+        problems = verify_epub(data)
+        assert bool(any("no table of contents" in problem for problem in problems)) != valid

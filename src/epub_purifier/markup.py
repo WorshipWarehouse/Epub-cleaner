@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator
 
 from bs4 import BeautifulSoup
 from bs4.element import Comment, Doctype, NavigableString, Tag
+from bs4.formatter import XMLFormatter
 from lxml import etree
 
 #: Tags that hold a paragraph-level run of content.
@@ -124,7 +125,7 @@ def serialize_markup(soup: BeautifulSoup, parser: str, *, xml_declaration: bool)
         if not html_root.get("xmlns"):
             html_root["xmlns"] = _XHTML_NAMESPACE
 
-    text = _XML_DECL.sub("", str(soup), count=1)
+    text = _XML_DECL.sub("", soup.decode(formatter=XMLFormatter.REGISTRY["minimal"]), count=1)
     if parser == "html" or xml_declaration or html_root is not None:
         text = '<?xml version="1.0" encoding="utf-8"?>\n' + text
     return text.encode("utf-8")

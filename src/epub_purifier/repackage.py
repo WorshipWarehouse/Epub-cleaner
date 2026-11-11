@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import io
 import posixpath
-import re
 import zipfile
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -15,7 +14,13 @@ from lxml import etree
 
 from .archive import CONTAINER_PATH, MIMETYPE, SafeArchive
 from .config import Limits
-from .opf import PackageDocument, find_local, iter_local, modified_timestamps
+from .opf import (
+    PackageDocument,
+    find_local,
+    is_valid_modified_timestamp,
+    iter_local,
+    modified_timestamps,
+)
 
 FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 _XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
@@ -39,7 +44,6 @@ _VOID_ELEMENTS = frozenset(
         "wbr",
     }
 )
-_MODIFIED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def build_epub(
@@ -124,6 +128,8 @@ def _check_content_documents(archive: SafeArchive, package: PackageDocument, pro
         suffix = posixpath.splitext(item.path)[1].lower()
         if item.media_type not in _XHTML_MEDIA_TYPES and suffix not in _XHTML_EXTENSIONS:
             continue
+        if not archive.exists(item.path):
+            continue
         try:
             root = _parse_xml(archive.read(item.path))
         except Exception as exc:  # noqa: BLE001 - report any reader/parser failure
@@ -171,11 +177,16 @@ def _check_epub3_package(archive: SafeArchive, package: PackageDocument, problem
             else:
                 if not isinstance(root.tag, str) or _local_name(root.tag) != "html":
                     problems.append(f"navigation document has no <html> root: {nav.href}")
+                if not any(
+                    "toc" in element.get("{http://www.idpf.org/2007/ops}type", "").split()
+                    for element in root.iter(f"{{{_XHTML_NAMESPACE}}}nav")
+                ):
+                    problems.append(f"navigation document has no table of contents: {nav.href}")
 
     modified = modified_timestamps(package)
     if len(modified) != 1:
         problems.append("EPUB 3 package must have exactly one dcterms:modified")
-    elif not _MODIFIED_RE.fullmatch(modified[0]):
+    elif not is_valid_modified_timestamp(modified[0]):
         problems.append("dcterms:modified is not a valid UTC timestamp")
 
     metadata = package.metadata

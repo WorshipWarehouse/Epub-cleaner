@@ -4,12 +4,14 @@
 // because a malicious EPUB can put arbitrary strings in its metadata.
 
 const MAX_BATCH_FILES = 10;
+const INSPECT_TIMEOUT_MS = 60_000;
 let queueSeq = 0;
 
 const state = {
   queue: [],
   activeId: null,
   busy: false,
+  inspectPending: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -49,6 +51,8 @@ function updateInspectButton() {
 }
 
 function renderQueue() {
+  const focused = fileQueue.contains(document.activeElement) ? document.activeElement.dataset : null;
+  const focusKey = focused ? { id: focused.queueId, action: focused.action } : null;
   fileQueue.replaceChildren();
   fileQueue.hidden = state.queue.length === 0;
   for (const item of state.queue) {
@@ -56,7 +60,7 @@ function renderQueue() {
       class: `queue-item${item.id === state.activeId ? " active" : ""}`,
       dataset: { status: item.status },
     });
-    const select = make("button", { type: "button", class: "queue-select" }, [
+    const select = make("button", { type: "button", class: "queue-select", dataset: { queueId: item.id, action: "select" } }, [
       make("span", { class: "queue-name", text: item.file.name }),
       make("span", {
         class: "queue-meta",
@@ -65,8 +69,35 @@ function renderQueue() {
     ]);
     select.addEventListener("click", () => selectItem(item.id));
     row.append(select);
+    if (item.status === "error") {
+      for (const action of ["Retry", "Remove"]) {
+        const button = make("button", {
+          type: "button", text: action,
+          dataset: { queueId: item.id, action: action.toLowerCase() },
+        });
+        button.addEventListener("click", () => {
+          if (action === "Retry") {
+            item.status = "queued";
+            item.error = "";
+          } else {
+            state.queue = state.queue.filter((candidate) => candidate.id !== item.id);
+            if (state.activeId === item.id) state.activeId = state.queue[0]?.id ?? null;
+          }
+          renderQueue();
+          renderActive();
+          updateInspectButton();
+        });
+        row.append(button);
+      }
+    }
     if (item.error) row.append(make("p", { class: "queue-error", text: item.error }));
     fileQueue.append(row);
+  }
+  if (focusKey) {
+    const replacement = Array.from(fileQueue.querySelectorAll("button")).find(
+      (button) => button.dataset.queueId === focusKey.id && button.dataset.action === focusKey.action,
+    );
+    replacement?.focus({ preventScroll: true });
   }
 }
 
@@ -133,6 +164,7 @@ function chooseFiles(fileList) {
 
   if (added) {
     state.activeId = state.queue[state.queue.length - added].id;
+    renderActive();
     resetBtn.hidden = false;
     setStatus(skipped ? `${added} EPUB(s) queued; ${skipped} file(s) skipped.` : "");
   } else {
@@ -180,8 +212,18 @@ function renderActive() {
   else setStatus("");
 }
 
+function resumePendingInspection() {
+  if (state.inspectPending && !state.busy) {
+    state.inspectPending = false;
+    void inspectQueue();
+  }
+}
+
 async function inspectQueue() {
-  if (state.busy) return;
+  if (state.busy) {
+    state.inspectPending = true;
+    return;
+  }
   const pending = state.queue.filter((item) => item.status === "queued");
   if (!pending.length) return;
 
@@ -195,11 +237,16 @@ async function inspectQueue() {
       item.error = "";
       renderQueue();
       setStatus(`Inspecting ${completed + 1} of ${pending.length}: ${item.file.name}`);
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), INSPECT_TIMEOUT_MS);
       try {
         const body = new FormData();
         body.append("file", item.file);
-        const response = await fetch("/api/inspect", { method: "POST", body });
-        const payload = await response.json().catch(() => ({}));
+        const response = await fetch("/api/inspect", { method: "POST", body, signal: controller.signal });
+        const payload = await response.json().catch((error) => {
+          if (controller.signal.aborted) throw error;
+          return {};
+        });
         if (!response.ok) throw new Error(payload.detail || "The file could not be inspected.");
 
         item.jobId = payload.job_id;
@@ -208,7 +255,9 @@ async function inspectQueue() {
         item.status = "ready";
       } catch (error) {
         item.status = "error";
-        item.error = error.message;
+        item.error = controller.signal.aborted ? "Inspection timed out. Retry this file." : error.message;
+      } finally {
+        clearTimeout(deadline);
       }
       completed += 1;
       renderQueue();
@@ -223,6 +272,9 @@ async function inspectQueue() {
     resetBtn.disabled = false;
     updateInspectButton();
     renderQueue();
+    const current = activeItem();
+    cleanBtn.disabled = !current || current.status !== "ready";
+    resumePendingInspection();
   }
 }
 
@@ -386,6 +438,7 @@ cleanBtn.addEventListener("click", async () => {
   item.status = "cleaning";
   item.error = "";
   cleanBtn.disabled = true;
+  renderActive();
   updateInspectButton();
   renderQueue();
   setStatus(`Rebuilding ${item.file.name}…`);
@@ -421,6 +474,7 @@ cleanBtn.addEventListener("click", async () => {
       cleanBtn.disabled = !current || current.status !== "ready";
     }
     updateInspectButton();
+    resumePendingInspection();
   }
 });
 
@@ -692,6 +746,7 @@ if (searchForm) {
     } finally {
       state.busy = false;
       button.disabled = false;
+      resumePendingInspection();
     }
   }
 
@@ -808,6 +863,7 @@ if (searchForm) {
       setSearchStatus(error.message, true);
     } finally {
       state.busy = false;
+      resumePendingInspection();
     }
   });
 }

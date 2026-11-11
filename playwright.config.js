@@ -3,6 +3,7 @@
 const { defineConfig } = require("@playwright/test");
 
 module.exports = defineConfig({
+  globalSetup: require.resolve("./tests/ui/global-setup.js"),
   testDir: "./tests/ui",
   timeout: 90_000,
   fullyParallel: false,
