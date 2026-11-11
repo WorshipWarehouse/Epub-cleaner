@@ -1,0 +1,43 @@
+# Version control and local tooling
+.git
+.github
+.gitignore
+.venv
+.deploy-*
+node_modules
+package.json
+package-lock.json
+
+# Tests, proof harness and generated fixtures
+tests
+proof
+out
+tmp
+dist
+build
+*.egg-info
+*.cleaned.epub
+*.epub
+
+# Caches and reports
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+test-results
+playwright-report
+pytest.xml
+*.log
+
+# Docs and deployment files not needed inside the image
+*.md
+!README.md
+Caddyfile
+DEPLOY.md
+analog-church.md
+
+# Local secrets and OS metadata
+.env
+.env.*
+.DS_Store

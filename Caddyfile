@@ -1,0 +1,16 @@
+# EPUB Purifier reverse proxy.
+#
+# Both DNS names must point at this VPS before Caddy can issue certificates.
+# The upstream must match EPUB_PURIFIER_PORT (default 8000 below).
+weareworshipwarehouse.online, www.weareworshipwarehouse.online {
+	encode zstd gzip
+
+	# Limits.max_upload_bytes in src/epub_purifier/config.py is
+	# 256 * 1024 * 1024 = 268435456 bytes (256 MiB). 256MiB is the same
+	# limit; Caddy rejects a larger request body before proxying it.
+	request_body {
+		max_size 256MiB
+	}
+
+	reverse_proxy 127.0.0.1:8000
+}
