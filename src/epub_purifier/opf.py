@@ -7,6 +7,7 @@ here, so the cleaning stage never has to hand-assemble XML.
 from __future__ import annotations
 
 import posixpath
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from urllib.parse import unquote
@@ -121,7 +122,9 @@ class PackageDocument:
         return None
 
     def unique_identifier(self) -> str | None:
-        return self.spine.get("toc") if self.spine is not None else None
+        package = find_local(self.soup, "package")
+        value = package.get("unique-identifier") if package is not None else None
+        return str(value).strip() or None if value else None
 
 
 # -- namespace-tolerant traversal ----------------------------------------
@@ -238,19 +241,34 @@ def set_modified_timestamp(pkg: PackageDocument, timestamp: str) -> bool:
 
 
 def _set_meta_value(meta: Tag, value: str) -> None:
-    """Write the meta value in exactly one place.
-
-    EPUB 3 ``meta`` carries its value as element text. Emitting a ``content``
-    attribute *and* leaving the old text behind is invalid (EPUBCheck RSC-005),
-    so whatever form is not being written is cleared.
-    """
+    """Write the meta value as EPUB 3 element text and nothing else."""
 
     if meta.get("content") is not None:
-        meta["content"] = value
-        for child in list(meta.children):
-            child.extract()
-    else:
-        meta.string = value
+        del meta["content"]
+    meta.string = value
+
+
+_MODIFIED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def modified_timestamps(pkg: PackageDocument) -> list[str]:
+    """Return the dcterms:modified values in package order."""
+
+    if pkg.metadata is None:
+        return []
+    values: list[str] = []
+    for meta in iter_local(pkg.metadata, "meta"):
+        if str(meta.get("property") or "").lower() != "dcterms:modified":
+            continue
+        value = (meta.get_text() or "").strip()
+        if value:
+            values.append(value)
+    return values
+
+
+def has_valid_modified_timestamp(pkg: PackageDocument) -> bool:
+    values = modified_timestamps(pkg)
+    return len(values) == 1 and bool(_MODIFIED_RE.fullmatch(values[0]))
 
 
 def manifest_paths(pkg: PackageDocument) -> dict[str, str]:

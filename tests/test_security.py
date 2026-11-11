@@ -8,7 +8,7 @@ import zipfile
 from epub_purifier import clean_epub, inspect_epub
 from epub_purifier.models import Severity
 
-from .conftest import CHAPTER_TWO, CONTAINER, build_epub, opf_package, simple_book
+from .conftest import CHAPTER_TWO, CONTAINER, NAV, build_epub, opf_package, simple_book
 
 
 def _entries(data: bytes) -> dict[str, bytes]:
@@ -143,7 +143,7 @@ def test_svg_script_detected():
                     spine='<itemref idref="ch1"/>',
                 ),
             ),
-            ("OEBPS/nav.xhtml", "<html><body><nav><ol><li><a href=\"chapter1.xhtml\">One</a></li></ol></nav></body></html>"),
+            ("OEBPS/nav.xhtml", NAV),
             ("OEBPS/chapter1.xhtml", CHAPTER_TWO),
             ("OEBPS/art.svg", svg),
         ]

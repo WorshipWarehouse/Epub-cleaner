@@ -5,16 +5,41 @@ from __future__ import annotations
 import hashlib
 import io
 import posixpath
+import re
 import zipfile
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from defusedxml import ElementTree as DefusedET
+from lxml import etree
 
 from .archive import CONTAINER_PATH, MIMETYPE, SafeArchive
 from .config import Limits
+from .opf import PackageDocument, find_local, iter_local, modified_timestamps
 
 FIXED_DATE = (1980, 1, 1, 0, 0, 0)
+_XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+_XHTML_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
+_XHTML_EXTENSIONS = frozenset({".xhtml", ".html", ".htm"})
+_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_MODIFIED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def build_epub(
@@ -70,6 +95,111 @@ def build_epub(
 
 def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _local_name(name: str) -> str:
+    return name.rsplit("}", 1)[-1].lower()
+
+
+def _text(element) -> str:
+    return " ".join(element.get_text(" ").split())
+
+
+def _parse_xml(data: bytes):
+    parser = etree.XMLParser(
+        recover=False,
+        resolve_entities=False,
+        no_network=True,
+        load_dtd=False,
+    )
+    return etree.fromstring(data, parser)
+
+
+def _check_content_documents(archive: SafeArchive, package: PackageDocument, problems: list[str]) -> None:
+    """Reject malformed XHTML and non-empty XHTML void elements."""
+
+    for item in package.items():
+        if not item.path:
+            continue
+        suffix = posixpath.splitext(item.path)[1].lower()
+        if item.media_type not in _XHTML_MEDIA_TYPES and suffix not in _XHTML_EXTENSIONS:
+            continue
+        try:
+            root = _parse_xml(archive.read(item.path))
+        except Exception as exc:  # noqa: BLE001 - report any reader/parser failure
+            problems.append(f"content document is not well-formed XML: {item.href} ({exc})")
+            continue
+        if not isinstance(root.tag, str) or _local_name(root.tag) != "html":
+            problems.append(f"content document has no <html> root: {item.href}")
+            continue
+        namespace = root.tag[1:].split("}", 1)[0] if root.tag.startswith("{") else ""
+        if namespace != _XHTML_NAMESPACE:
+            problems.append(f"content document is not in the XHTML namespace: {item.href}")
+        for element in root.iter():
+            if not isinstance(element.tag, str):
+                continue
+            name = _local_name(element.tag)
+            if name in _VOID_ELEMENTS and (element.text or len(element)):
+                problems.append(f"content document has non-empty <{name}>: {item.href}")
+                break
+
+
+def _metadata_values(metadata, name: str) -> list[str]:
+    return [value for element in iter_local(metadata, name) if (value := _text(element))]
+
+
+def _check_epub3_package(archive: SafeArchive, package: PackageDocument, problems: list[str]) -> None:
+    """Check the package-level requirements Apple Books and EPUB 3 enforce."""
+
+    if not package.version.startswith("3."):
+        return
+
+    nav_items = [item for item in package.items() if "nav" in item.properties]
+    if len(nav_items) != 1:
+        problems.append("EPUB 3 package must declare exactly one navigation document")
+    else:
+        nav = nav_items[0]
+        if not nav.path:
+            problems.append("navigation document has no local path")
+        elif not archive.exists(nav.path):
+            problems.append(f"navigation document missing from archive: {nav.href}")
+        else:
+            try:
+                root = _parse_xml(archive.read(nav.path))
+            except Exception as exc:  # noqa: BLE001 - report any reader/parser failure
+                problems.append(f"navigation document is not well-formed XML: {nav.href} ({exc})")
+            else:
+                if not isinstance(root.tag, str) or _local_name(root.tag) != "html":
+                    problems.append(f"navigation document has no <html> root: {nav.href}")
+
+    modified = modified_timestamps(package)
+    if len(modified) != 1:
+        problems.append("EPUB 3 package must have exactly one dcterms:modified")
+    elif not _MODIFIED_RE.fullmatch(modified[0]):
+        problems.append("dcterms:modified is not a valid UTC timestamp")
+
+    metadata = package.metadata
+    if metadata is None:
+        problems.append("EPUB 3 package has no metadata")
+        return
+
+    package_tag = find_local(package.soup, "package")
+    unique_id = str(package_tag.get("unique-identifier") or "").strip() if package_tag else ""
+    if not unique_id:
+        problems.append("EPUB 3 package has no unique-identifier")
+    else:
+        identifiers = [
+            element
+            for element in iter_local(metadata, "identifier")
+            if str(element.get("id") or "") == unique_id and _text(element)
+        ]
+        if not identifiers:
+            problems.append("EPUB 3 package has no identifier matching unique-identifier")
+
+    if not _metadata_values(metadata, "title"):
+        problems.append("EPUB 3 package has no dc:title")
+    if not _metadata_values(metadata, "language"):
+        problems.append("EPUB 3 package has no dc:language")
 
 
 def verify_epub(
@@ -129,7 +259,6 @@ def verify_epub(
 
         # Every relative reference from the OPF must resolve to a real member.
         from .markup import parse_markup
-        from .opf import PackageDocument
 
         if archive.exists(CONTAINER_PATH):
             package_path = None
@@ -143,7 +272,15 @@ def verify_epub(
                 package_path = None
             if package_path and archive.exists(package_path):
                 soup, _ = parse_markup(archive.read_text(package_path))
-                package = PackageDocument(entry=package_path, soup=soup, version="")
+                package_tag = find_local(soup, "package")
+                version = (
+                    str(package_tag.get("version") or "").strip()
+                    if package_tag is not None
+                    else ""
+                )
+                package = PackageDocument(entry=package_path, soup=soup, version=version)
+                _check_content_documents(archive, package, problems)
+                _check_epub3_package(archive, package, problems)
                 if check_references:
                     for item in package.items():
                         if item.path and "://" not in item.href and not archive.exists(item.path):
