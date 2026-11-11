@@ -372,6 +372,8 @@ def create_app(
 
     @app.post("/api/clean")
     async def clean_endpoint(payload: CleanRequest) -> JSONResponse:
+        """Clean an inspected upload and persist its downloadable EPUB."""
+
         job = store.get(payload.job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="That inspection expired; upload the file again.")
@@ -396,10 +398,7 @@ def create_app(
 
         if result.data is None:  # pragma: no cover - defensive
             raise HTTPException(status_code=500, detail="No output was produced.")
-        output = job.directory / "cleaned.epub"
-        output.write_bytes(result.data)
-        job.output = output
-        job.approved = list(payload.approved)
+        store.save_output(job, result.data, payload.approved)
 
         report = result.report.to_dict()
         report["output"]["download_url"] = f"/api/download/{job.job_id}"
@@ -407,22 +406,20 @@ def create_app(
 
     @app.get("/api/download/batch")
     async def batch_download(job_ids: str) -> FileResponse:
+        """Return every requested cleaned EPUB as one ZIP archive."""
+
         ids = list(dict.fromkeys(part.strip() for part in job_ids.split(",") if part.strip()))
         if not ids or len(ids) > MAX_BATCH_DOWNLOADS:
             raise HTTPException(
                 status_code=400,
                 detail=f"Choose between 1 and {MAX_BATCH_DOWNLOADS} cleaned files.",
             )
-        jobs: list[Job] = []
-        for job_id in ids:
-            job = store.get(job_id)
-            if job is None or job.output is None or not job.output.exists():
-                raise HTTPException(
-                    status_code=404,
-                    detail="No cleaned file is available for every job in that batch.",
-                )
-            jobs.append(job)
-        archive_path = _zip_cleaned_jobs(jobs)
+        archive_path = await asyncio.to_thread(store.batch_zip, ids)
+        if archive_path is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No cleaned file is available for every job in that batch.",
+            )
         return FileResponse(
             archive_path,
             media_type="application/zip",
@@ -498,6 +495,31 @@ class JobStore:
             self.discard(job)
             return None
         return job
+
+    def save_output(self, job: Job, data: bytes, approved: list[str]) -> Path:
+        """Write a cleaned EPUB and publish it for download under the store lock."""
+
+        with self._lock:
+            output = job.directory / "cleaned.epub"
+            output.write_bytes(data)
+            job.output = output
+            job.approved = list(approved)
+            return output
+
+    def batch_zip(self, job_ids: list[str]) -> Path | None:
+        """Build a ZIP for cleaned jobs while pinning their outputs under the lock."""
+
+        with self._lock:
+            jobs: list[Job] = []
+            now = time.time()
+            for job_id in job_ids:
+                job = self._jobs.get(job_id)
+                if job is None or now - job.created_at > self.ttl:
+                    return None
+                if job.output is None or not job.output.exists():
+                    return None
+                jobs.append(job)
+            return _zip_cleaned_jobs(jobs)
 
     def count(self) -> int:
         with self._lock:

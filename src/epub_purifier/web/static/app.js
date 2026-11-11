@@ -54,6 +54,7 @@ function updateInspectButton() {
   inspectBtn.disabled = state.busy || pending === 0;
 }
 
+/** Refresh Clean all and batch ZIP controls from the current queue. */
 function updateBatchControls() {
   const ready = state.queue.filter((item) => item.status === "ready");
   cleanAllBtn.hidden = ready.length < 2;
@@ -73,6 +74,7 @@ function updateBatchControls() {
   batchDownload.hidden = false;
 }
 
+/** Render the upload queue while preserving keyboard focus and batch controls. */
 function renderQueue() {
   const focused = fileQueue.contains(document.activeElement) ? document.activeElement.dataset : null;
   const focusKey = focused ? { id: focused.queueId, action: focused.action } : null;
@@ -459,6 +461,7 @@ cleanAllBtn.addEventListener("click", () => {
   void cleanAllReady();
 });
 
+/** Clean every ready queue item, preserving each file's review selections. */
 async function cleanAllReady() {
   if (state.busy) return;
   const ready = state.queue.filter((item) => item.status === "ready");
@@ -517,6 +520,7 @@ async function cleanAllReady() {
       failed > 0,
     );
     updateBatchControls();
+    resumePendingInspection();
   }
 }
 

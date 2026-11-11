@@ -63,6 +63,8 @@ def test_inspect_clean_download(client, sample_epub):
 
 
 def test_batch_download_returns_all_cleaned_epubs(client, sample_epub):
+    """The batch endpoint returns every cleaned EPUB in one ZIP archive."""
+
     job_ids = []
     for name in ("first.epub", "second.epub"):
         inspected = client.post(
@@ -88,6 +90,8 @@ def test_batch_download_returns_all_cleaned_epubs(client, sample_epub):
 
 
 def test_batch_download_rejects_unknown_jobs(client):
+    """A batch containing an unknown job does not produce a partial archive."""
+
     response = client.get("/api/download/batch", params={"job_ids": "0123456789abcdef"})
     assert response.status_code == 404
 
