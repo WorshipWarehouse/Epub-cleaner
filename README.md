@@ -110,6 +110,11 @@ epub-purifier clean   FILE [-o OUTPUT] [--report PATH] [--json] [--dry-run]
                           [--min-confidence 0..1] [--review-confidence 0..1]
 ```
 
+`FILE` may also be an unzipped book folder: a directory holding `mimetype` and
+`META-INF/container.xml`. It is packed into an EPUB in memory before validation,
+so extracted and zipped copies of the same book give the same report. Symlinks
+inside the tree are never followed, and traversal names are refused.
+
 Exit codes: `0` success, `1` findings above `--fail-on`, `2` usage/config error,
 `3` invalid or unreadable EPUB, `4` DRM-protected input, `5` rebuild failure.
 
@@ -120,6 +125,12 @@ epub-purifier-web          # http://127.0.0.1:8000
 ```
 
 Upload → review the report → tick any ambiguous items → clean → download.
+
+**Choose unzipped folder** does the same for a book that arrived extracted rather
+than zipped. The browser sends the folder's files with their relative paths and
+the server packs them back into an EPUB in memory — same name normalisation,
+same budgets — before validation, so an extracted book and its archive produce
+the same report.
 The server binds to loopback by default (`EPUB_PURIFIER_HOST`,
 `EPUB_PURIFIER_PORT`), keeps uploads in a private temp directory, deletes each
 job after 30 minutes (`EPUB_PURIFIER_JOB_TTL`), and serves a strict

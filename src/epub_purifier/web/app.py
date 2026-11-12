@@ -12,6 +12,7 @@ GET  /api/transfers        temporary store: remaining time and storage use
 DELETE /api/transfer/{id}  delete one temporary copy now
 GET  /api/cover/{src}/{id} proxied cover image
 POST /api/inspect          upload an EPUB, get a report
+POST /api/inspect-folder   upload an unzipped book tree (many files), get a report
 POST /api/clean            clean an inspected job (approved ids optional)
 GET  /api/download/{job}   download the cleaned EPUB
 """
@@ -29,8 +30,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -47,6 +49,7 @@ from ..transfer import (
     TransferService,
     TransferUnavailable,
 )
+from ..tree import pack_entries
 
 JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
@@ -326,23 +329,13 @@ def create_app(
             headers={"Cache-Control": "private, max-age=600"},
         )
 
-    @app.post("/api/inspect")
-    async def inspect_endpoint(request: Request, file: UploadFile) -> JSONResponse:
-        client = _client_id(request)
-        if not request.app.state.rate_limiter.allow(client):
-            raise HTTPException(status_code=429, detail="Too many requests; wait a moment.")
-        if store.count() >= MAX_JOBS:
-            raise HTTPException(status_code=503, detail="Server is busy; try again shortly.")
-
-        display_name = _safe_display_name(file.filename)
-        job = store.create(display_name)
-        data = await _read_upload(file, job.source, PurifierConfig().limits.max_upload_bytes)
-        if not data:
-            store.discard(job)
-            raise HTTPException(status_code=400, detail="The uploaded file was empty.")
+    async def _inspect_stored(job: Job, display_name: str) -> JSONResponse:
+        """Inspect the bytes already stored for a job and return its report."""
 
         try:
-            report = await asyncio.to_thread(inspect_epub, job.source.read_bytes(), None, file_name=display_name)
+            report = await asyncio.to_thread(
+                inspect_epub, job.source.read_bytes(), None, file_name=display_name
+            )
         except DrmProtectedError as exc:
             store.discard(job)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -365,6 +358,74 @@ def create_app(
                 ],
             }
         )
+
+    @app.post("/api/inspect")
+    async def inspect_endpoint(request: Request, file: UploadFile) -> JSONResponse:
+        client = _client_id(request)
+        if not request.app.state.rate_limiter.allow(client):
+            raise HTTPException(status_code=429, detail="Too many requests; wait a moment.")
+        if store.count() >= MAX_JOBS:
+            raise HTTPException(status_code=503, detail="Server is busy; try again shortly.")
+
+        display_name = _safe_display_name(file.filename)
+        job = store.create(display_name)
+        data = await _read_upload(file, job.source, PurifierConfig().limits.max_upload_bytes)
+        if not data:
+            store.discard(job)
+            raise HTTPException(status_code=400, detail="The uploaded file was empty.")
+        return await _inspect_stored(job, display_name)
+
+    @app.post("/api/inspect-folder")
+    async def inspect_folder_endpoint(
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+        folder: Annotated[str, Form()] = "book",
+    ) -> JSONResponse:
+        """Inspect a book that arrived extracted instead of zipped.
+
+        The browser sends every file with its path inside the chosen folder as
+        the upload filename. The tree is rebuilt and packed in memory with the
+        same name normalisation and budgets as an archive, so the ordinary
+        validation and scan then run unchanged.
+        """
+
+        if not request.app.state.rate_limiter.allow(_client_id(request)):
+            raise HTTPException(status_code=429, detail="Too many requests; wait a moment.")
+        if store.count() >= MAX_JOBS:
+            raise HTTPException(status_code=503, detail="Server is busy; try again shortly.")
+        if not files:
+            raise HTTPException(status_code=400, detail="No files were sent for that folder.")
+
+        folder_name = (folder or "").strip() or "book"
+        # An extracted book is usually still called "Title.epub"; only add the
+        # suffix when the folder does not already carry it.
+        if not folder_name.lower().endswith(".epub"):
+            folder_name = f"{folder_name}.epub"
+        display_name = _safe_display_name(folder_name)
+        job = store.create(display_name)
+        limit = PurifierConfig().limits.max_upload_bytes
+        entries: list[tuple[str, bytes]] = []
+        total = 0
+        try:
+            for upload in files:
+                data = await upload.read(limit + 1)
+                await upload.close()
+                total += len(data)
+                if total > limit:
+                    raise HTTPException(
+                        status_code=413, detail="That folder is larger than the upload limit."
+                    )
+                entries.append((upload.filename or "", data))
+            packed = await asyncio.to_thread(pack_entries, entries)
+        except HTTPException:
+            store.discard(job)
+            raise
+        except PurifierError as exc:
+            store.discard(job)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        job.source.write_bytes(packed)
+        return await _inspect_stored(job, display_name)
 
     @app.post("/api/clean")
     async def clean_endpoint(payload: CleanRequest) -> JSONResponse:

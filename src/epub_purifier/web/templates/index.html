@@ -109,6 +109,7 @@
       <h2 id="upload-heading"><span class="step">2</span> Or clean a file you already have</h2>
       <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="dz-hint">
         <input id="file-input" type="file" accept=".epub,application/epub+zip" hidden>
+        <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
         <p class="dz-title">Drop an EPUB anywhere on this page</p>
         <p class="dz-hint" id="dz-hint">or click to browse &middot; EPUB 2 and 3 &middot; up to 256&nbsp;MiB</p>
         <p id="file-name" class="file-name" hidden></p>
@@ -122,8 +123,14 @@
 
       <div class="actions">
         <button id="inspect-btn" class="button primary" disabled>Inspect file</button>
+        <button id="folder-btn" class="button ghost" type="button">Choose unzipped folder</button>
         <button id="reset-btn" class="button ghost" hidden>Start over</button>
       </div>
+      <p class="meta">
+        A book that arrived as an extracted folder &mdash; <code>mimetype</code> and
+        <code>META-INF/container.xml</code> beside the markup &mdash; is packed back into an
+        EPUB before it is scanned.
+      </p>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </section>
 

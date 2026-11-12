@@ -60,6 +60,13 @@ def read_source(source: str | Path | bytes, limits: Limits) -> bytes:
         path = Path(source)
         if not path.exists():
             raise ArchiveError(f"input file not found: {path}")
+        if path.is_dir():
+            # An extracted book tree is packed in memory so the rest of the
+            # pipeline sees an ordinary EPUB. Imported here because the tree
+            # packer itself depends on this module.
+            from .tree import pack_tree
+
+            return pack_tree(path, limits)
         if not path.is_file():
             raise ArchiveError(f"input is not a regular file: {path}")
         size = path.stat().st_size

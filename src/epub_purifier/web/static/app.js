@@ -5,6 +5,7 @@
 
 const state = {
   file: null,
+  folder: null,
   jobId: null,
   report: null,
   selected: new Set(),
@@ -14,6 +15,8 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 const fileInput = $("file-input");
+const folderInput = $("folder-input");
+const folderBtn = $("folder-btn");
 const dropzone = $("dropzone");
 const fileName = $("file-name");
 const inspectBtn = $("inspect-btn");
@@ -49,7 +52,41 @@ function chooseFile(file) {
     return false;
   }
   state.file = file;
+  state.folder = null;
+  folderInput.value = "";
   fileName.textContent = `${file.name} · ${formatBytes(file.size)}`;
+  fileName.hidden = false;
+  inspectBtn.disabled = false;
+  setStatus("");
+  return true;
+}
+
+// A book can also arrive as an extracted folder. The browser sends each file
+// with its path inside the folder, and the server packs the tree back into an
+// EPUB before the ordinary scan runs.
+const TREE_MARKERS = ["mimetype", "META-INF/container.xml"];
+
+function chooseFolder(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return false;
+
+  const paths = list.map((file) => file.webkitRelativePath || file.name);
+  const root = String(paths[0].split("/")[0] || "book").trim() || "book";
+  const relative = paths.map((path) => path.split("/").slice(1).join("/"));
+  const missing = TREE_MARKERS.filter((marker) => !relative.includes(marker));
+  if (missing.length) {
+    setStatus(
+      `That folder is not an unzipped EPUB: it has no ${missing.join(" or ")}.`,
+      true,
+    );
+    return false;
+  }
+
+  const size = list.reduce((total, file) => total + file.size, 0);
+  state.folder = { root, files: list, paths };
+  state.file = null;
+  fileInput.value = "";
+  fileName.textContent = `${root} · unzipped book · ${list.length} files · ${formatBytes(size)}`;
   fileName.hidden = false;
   inspectBtn.disabled = false;
   setStatus("");
@@ -64,6 +101,8 @@ dropzone.addEventListener("keydown", (event) => {
   }
 });
 fileInput.addEventListener("change", () => chooseFile(fileInput.files[0]));
+folderBtn.addEventListener("click", () => folderInput.click());
+folderInput.addEventListener("change", () => chooseFolder(folderInput.files));
 
 // A downloaded book can be dropped anywhere on the page, not only on the
 // dashed box. Only file drags are intercepted, so dropping selected text or a
@@ -105,6 +144,12 @@ window.addEventListener("drop", (event) => {
   event.preventDefault();
   dragDepth = 0;
   setDragActive(false);
+  const item = event.dataTransfer.items && event.dataTransfer.items[0];
+  const entry = item && item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+  if (entry && entry.isDirectory) {
+    setStatus("That is an unzipped book folder — use “Choose unzipped folder” so it can be packed first.", true);
+    return;
+  }
   const file = event.dataTransfer.files[0];
   // A dropped book goes straight to inspection: one drag from the download
   // shelf to a finished report.
@@ -113,16 +158,26 @@ window.addEventListener("drop", (event) => {
 
 // -- inspect -------------------------------------------------------------
 inspectBtn.addEventListener("click", async () => {
-  if (!state.file || state.busy) return;
+  if ((!state.file && !state.folder) || state.busy) return;
   state.busy = true;
   inspectBtn.disabled = true;
-  setStatus("Reading the archive and scanning every resource…");
 
   const body = new FormData();
-  body.append("file", state.file);
+  let endpoint = "/api/inspect";
+  if (state.folder) {
+    endpoint = "/api/inspect-folder";
+    setStatus("Packing the folder and scanning every resource…");
+    body.append("folder", state.folder.root);
+    state.folder.files.forEach((file, index) => {
+      body.append("files", file, state.folder.paths[index]);
+    });
+  } else {
+    setStatus("Reading the archive and scanning every resource…");
+    body.append("file", state.file);
+  }
 
   try {
-    const response = await fetch("/api/inspect", { method: "POST", body });
+    const response = await fetch(endpoint, { method: "POST", body });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || "The file could not be inspected.");
 
@@ -300,10 +355,12 @@ function renderCleaned(report) {
 // -- reset ---------------------------------------------------------------
 resetBtn.addEventListener("click", () => {
   state.file = null;
+  state.folder = null;
   state.jobId = null;
   state.report = null;
   state.selected = new Set();
   fileInput.value = "";
+  folderInput.value = "";
   fileName.hidden = true;
   inspectBtn.disabled = true;
   resetBtn.hidden = true;

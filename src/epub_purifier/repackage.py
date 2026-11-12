@@ -22,12 +22,19 @@ def build_epub(
     *,
     moment: datetime | None = None,
     compress_level: int = 9,
+    mimetype: bytes | None = None,
 ) -> bytes:
     """Write a spec-compliant EPUB: stored mimetype first, then the rest.
 
     ``mimetype`` is written exactly as required (first member, no compression, no
     extra field). Everything else is deflated; the input order is otherwise kept.
+
+    ``mimetype`` may be supplied to keep an input's own file, which is how an
+    unzipped book tree is packed: a wrong value stays visible to validation and
+    is reported instead of being silently corrected.
     """
+
+    mimetype_value = MIMETYPE.encode("ascii") if mimetype is None else mimetype
 
     moment = moment or datetime.now(timezone.utc)
     date_time = (
@@ -57,7 +64,7 @@ def build_epub(
         info = zipfile.ZipInfo("mimetype", date_time=date_time)
         info.compress_type = zipfile.ZIP_STORED
         info.external_attr = 0o100644 << 16
-        archive.writestr(info, MIMETYPE.encode("ascii"))
+        archive.writestr(info, mimetype_value)
 
         for name, data in ordered:
             member = zipfile.ZipInfo(name, date_time=date_time)

@@ -93,3 +93,61 @@ def test_path_traversal_in_filename_is_flattened(client, sample_epub):
     )
     assert response.status_code == 200
     assert response.json()["file_name"] == "passwd.epub"
+
+
+def _folder_upload(source: bytes, root: str = "Book") -> list[tuple[str, tuple[str, bytes, str]]]:
+    """Build the multipart list a browser sends for a chosen folder."""
+
+    import io
+    import zipfile
+
+    uploads = []
+    with zipfile.ZipFile(io.BytesIO(source)) as archive:
+        for name in archive.namelist():
+            uploads.append(("files", (f"{root}/{name}", archive.read(name), "application/octet-stream")))
+    return uploads
+
+
+def test_inspect_unzipped_folder(client, sample_epub):
+    response = client.post(
+        "/api/inspect-folder", files=_folder_upload(sample_epub), data={"folder": "Book"}
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["file_name"] == "Book.epub"
+    assert payload["report"]["summary"]["counts"]["critical"] >= 1
+
+    cleaned = client.post("/api/clean", json={"job_id": payload["job_id"], "approve_all": True})
+    assert cleaned.status_code == 200
+    download = client.get(f"/api/download/{payload['job_id']}")
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "application/epub+zip"
+
+
+def test_a_folder_already_named_epub_keeps_one_suffix(client, sample_epub):
+    response = client.post(
+        "/api/inspect-folder",
+        files=_folder_upload(sample_epub, root="Book.epub"),
+        data={"folder": "Book.epub"},
+    )
+    assert response.status_code == 200
+    assert response.json()["file_name"] == "Book.epub"
+
+
+def test_folder_without_markers_is_refused(client):
+    response = client.post(
+        "/api/inspect-folder",
+        files=[("files", ("Book/OEBPS/chapter1.xhtml", b"<html/>", "application/octet-stream"))],
+        data={"folder": "Book"},
+    )
+    assert response.status_code == 422
+    assert "container.xml" in response.json()["detail"]
+
+
+def test_folder_upload_rejects_traversal_paths(client, sample_epub):
+    uploads = _folder_upload(sample_epub)
+    uploads.append(("files", ("Book/../../../etc/passwd", b"root", "application/octet-stream")))
+
+    response = client.post("/api/inspect-folder", files=uploads, data={"folder": "Book"})
+    assert response.status_code == 422

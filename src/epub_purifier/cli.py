@@ -52,7 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser = subparsers.add_parser(
         "inspect", help="analyse a file and print a report without changing it"
     )
-    inspect_parser.add_argument("file", help="EPUB file to inspect")
+    inspect_parser.add_argument(
+        "file", help="EPUB file, or an unzipped book folder, to inspect"
+    )
     inspect_parser.add_argument("--json", dest="json_path", help="also write the report as JSON")
     inspect_parser.add_argument("--format", choices=("text", "json"), default="text")
     inspect_parser.add_argument("--config", help="TOML/JSON configuration file")
@@ -67,7 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     clean_parser = subparsers.add_parser(
         "clean", help="inspect, remove unwanted content and write a cleaned EPUB"
     )
-    clean_parser.add_argument("file", help="EPUB file to clean")
+    clean_parser.add_argument(
+        "file", help="EPUB file, or an unzipped book folder, to clean"
+    )
     clean_parser.add_argument("-o", "--output", help="path for the cleaned EPUB")
     clean_parser.add_argument("--report", help="write the cleaning report as JSON")
     clean_parser.add_argument("--json", action="store_true", help="print the report as JSON")

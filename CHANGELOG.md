@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Unzipped book trees are accepted directly. `epub-purifier inspect` and `clean`
+  take a directory path, and the web UI's **Choose unzipped folder** packs the
+  selected folder in memory before scanning. Member names go through the same
+  normalisation as an archive, symlinks are never followed, the usual entry and
+  size budgets apply, and a wrong `mimetype` in the tree is reported rather than
+  quietly corrected — so extracted and zipped copies of a book get the same
+  treatment.
+
 - Five-hour temporary storage for fetched books: a cleaned copy and its metadata
   are deleted five hours after the server starts downloading the book, whether
   or not it was downloaded. A background worker sweeps every ten minutes, and
