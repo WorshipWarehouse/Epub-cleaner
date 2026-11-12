@@ -122,6 +122,19 @@ def _clean_named_jobs(client, sample_epub, names):
     return job_ids
 
 
+def test_batch_download_allows_more_than_ten_cleaned_epubs(client, sample_epub):
+    """A batch may contain more than ten cleaned files."""
+
+    names = [f"book-{index}.epub" for index in range(11)]
+    job_ids = _clean_named_jobs(client, sample_epub, names)
+
+    response = client.get("/api/download/batch", params={"job_ids": ",".join(job_ids)})
+    assert response.status_code == 200
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert len(archive.namelist()) == 11
+
+
 def test_batch_download_avoids_case_insensitive_name_collisions(client, sample_epub):
     """Names that differ only by case still produce distinct ZIP entries."""
 

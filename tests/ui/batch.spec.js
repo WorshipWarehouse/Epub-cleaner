@@ -47,6 +47,23 @@ test("multiple dropped EPUBs are inspected as separate queue entries", async ({ 
   expect(pageErrors).toEqual([]);
 });
 
+test("more than ten EPUBs can be queued at once", async ({ page }) => {
+  await page.goto("/");
+  const payload = fs.readFileSync(fixture).toString("base64");
+  const buffer = Buffer.from(payload, "base64");
+
+  await page.setInputFiles(
+    "#file-input",
+    Array.from({ length: 11 }, (_, index) => ({
+      name: `book-${index + 1}.epub`,
+      mimeType: "application/epub+zip",
+      buffer,
+    })),
+  );
+
+  await expect(page.locator("#file-queue .queue-item")).toHaveCount(11);
+});
+
 test("cleaning multiple inspected EPUBs offers one ZIP download", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));

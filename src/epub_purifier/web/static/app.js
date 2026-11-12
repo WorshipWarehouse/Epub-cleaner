@@ -3,7 +3,7 @@
 // All values from the server are rendered with textContent (never innerHTML),
 // because a malicious EPUB can put arbitrary strings in its metadata.
 
-const MAX_BATCH_FILES = 10;
+const MAX_BATCH_FILES = 25; // Keep in sync with MAX_BATCH_DOWNLOADS in app.py.
 const INSPECT_TIMEOUT_MS = 60_000;
 let queueSeq = 0;
 
