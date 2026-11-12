@@ -46,6 +46,16 @@ _VOID_ELEMENTS = frozenset(
 )
 
 
+def _directory_prefixes(entries: list[tuple[str, bytes]]) -> set[str]:
+    """Return directory prefixes represented by archive member names."""
+
+    prefixes: set[str] = set()
+    for name, _ in entries:
+        parts = name.rstrip("/").split("/")
+        prefixes.update("/".join(parts[:index]) for index in range(1, len(parts)))
+    return prefixes
+
+
 def build_epub(
     entries: Iterable[tuple[str, bytes]],
     *,
@@ -55,7 +65,9 @@ def build_epub(
     """Write a spec-compliant EPUB: stored mimetype first, then the rest.
 
     ``mimetype`` is written exactly as required (first member, no compression, no
-    extra field). Everything else is deflated; the input order is otherwise kept.
+    extra field). Directory placeholders are omitted; ZIP readers recreate those
+    directories from the member paths. Everything else is deflated and the input
+    order is otherwise kept.
     """
 
     moment = moment or datetime.now(timezone.utc)
@@ -68,11 +80,15 @@ def build_epub(
         moment.second,
     )
 
+    items = list(entries)
+    directory_prefixes = _directory_prefixes(items)
     ordered: list[tuple[str, bytes]] = []
     container: list[tuple[str, bytes]] = []
     rest: list[tuple[str, bytes]] = []
-    for name, data in entries:
+    for name, data in items:
         if name == "mimetype":
+            continue
+        if not data and (name.endswith("/") or name.rstrip("/") in directory_prefixes):
             continue
         if name == CONTAINER_PATH:
             container.append((name, data))

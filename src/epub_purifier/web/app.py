@@ -55,7 +55,7 @@ from ..transfer import (
 
 JOB_TTL_SECONDS = int(os.environ.get("EPUB_PURIFIER_JOB_TTL", "1800"))
 MAX_JOBS = int(os.environ.get("EPUB_PURIFIER_MAX_JOBS", "32"))
-MAX_BATCH_DOWNLOADS = 10
+MAX_BATCH_DOWNLOADS = 25  # Keep in sync with MAX_BATCH_FILES in static/app.js.
 MAX_CONCURRENT_BATCH_DOWNLOADS = 2
 _WINDOWS_RESERVED_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
