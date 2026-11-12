@@ -47,6 +47,38 @@ test("multiple dropped EPUBs are inspected as separate queue entries", async ({ 
   expect(pageErrors).toEqual([]);
 });
 
+test("EPUB files without an extension are accepted by MIME type", async ({ page }) => {
+  await page.goto("/");
+  const payload = fs.readFileSync(fixture).toString("base64");
+
+  await page.setInputFiles("#file-input", [
+    {
+      name: "downloaded-book",
+      mimeType: "application/epub+zip",
+      buffer: Buffer.from(payload, "base64"),
+    },
+  ]);
+
+  await expect(page.locator("#file-queue .queue-item")).toHaveCount(1);
+  await expect(page.locator("#status")).not.toContainText("not .epub");
+});
+
+test("EPUB filenames with surrounding whitespace are accepted", async ({ page }) => {
+  await page.goto("/");
+  const payload = fs.readFileSync(fixture).toString("base64");
+
+  await page.setInputFiles("#file-input", [
+    {
+      name: "  spaced-book.epub  ",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from(payload, "base64"),
+    },
+  ]);
+
+  await expect(page.locator("#file-queue .queue-item")).toHaveCount(1);
+  await expect(page.locator("#status")).not.toContainText("not .epub");
+});
+
 test("more than ten EPUBs can be queued at once", async ({ page }) => {
   await page.goto("/");
   const payload = fs.readFileSync(fixture).toString("base64");
