@@ -148,11 +148,20 @@ function make(tag, props = {}, children = []) {
 }
 
 // -- file selection ------------------------------------------------------
+function isEpubFile(file) {
+  const name = (file.name || "")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "")
+    .trim()
+    .toLowerCase();
+  const type = (file.type || "").split(";", 1)[0].trim().toLowerCase();
+  return name.endsWith(".epub") || type === "application/epub+zip";
+}
+
 function chooseFiles(fileList) {
   const incoming = Array.from(fileList || []);
   if (!incoming.length) return 0;
 
-  const epubFiles = incoming.filter((file) => file.name.toLowerCase().endsWith(".epub"));
+  const epubFiles = incoming.filter(isEpubFile);
   let skipped = incoming.length - epubFiles.length;
   if (!epubFiles.length) {
     setStatus("Those are not .epub files. Pick the books you want to inspect.", true);
